@@ -174,10 +174,31 @@ jobs:
             exit 1
           fi
           VER="${TAG#v}"
-          cp "$EXE" "/tmp/EchoBird_${VER}_Windows_x64_portable.exe"
-          gh release upload "${TAG}" "/tmp/EchoBird_${VER}_Windows_x64_portable.exe" \
+          # Ship a DIRECTORY, not a loose exe.
+          #
+          # On Windows Tauri's resource_dir is the directory containing the
+          # executable, which is how the installed app finds `tools/`. A bare
+          # .exe sitting in Downloads therefore resolves resource_dir to
+          # Downloads and the tool catalogue is simply absent — the app starts
+          # but cannot see a single installed tool. The MSI hides this because
+          # it lays the resources down itself, so the bare-exe upload was
+          # shipping a knowingly incomplete program.
+          #
+          # Zip the same layout the installer produces: the exe plus
+          # `_up_/tools/`, which is how Tauri encodes the config's `../tools/`
+          # (confirmed against the Linux deb, where tools land in
+          # /usr/lib/EchoBird/_up_/tools/).
+          ROOT="/tmp/portable-${VER}"
+          STAGE="$ROOT/EchoBird"
+          rm -rf "$ROOT"
+          mkdir -p "$STAGE/_up_"
+          cp "$EXE" "$STAGE/EchoBird.exe"
+          cp -r tools "$STAGE/_up_/tools"
+          cd "$ROOT"
+          python -c "import shutil; shutil.make_archive('EchoBird_${VER}_Windows_x64_portable', 'zip', '$ROOT', 'EchoBird')"
+          gh release upload "${TAG}" "EchoBird_${VER}_Windows_x64_portable.zip" \
             --clobber --repo "${REPO}"
-          echo "uploaded portable exe"
+          echo "uploaded portable zip"
 
   rename-assets:
     # Tauri's bundler uses inconsistent filenames (no platform label, RPM "-1"

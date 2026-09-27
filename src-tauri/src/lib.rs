@@ -612,7 +612,46 @@ fn kill_stale_llama_server() {
 /// starts the Tauri app. The tray icon bytes are cached in a [`OnceLock`]
 /// so [`rebuild_tray_menu`] can repaint the tray after locale changes.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Record how far startup got, before anything that can fail.
+///
+/// EchoBird creates its window with `visible: false` and only shows it once the
+/// frontend calls `appReady()`. Every `?` and `expect()` between here and that
+/// point therefore presents to the user as the same thing: the process appears
+/// for an instant and is gone, with no window, no dialog and no message. On a
+/// loose `.exe` — as opposed to the installed one — there is additionally no
+/// console to print to and no log file yet, because the file logger is
+/// registered partway through `setup()`.
+///
+/// So write a breadcrumb beside the executable as we go. It costs one small
+/// file write per milestone and turns "it flashes and disappears" into a
+/// sentence naming the stage that failed, on exactly the platform where we
+/// cannot attach a debugger.
+fn startup_breadcrumb(stage: &str) {
+    let line = format!("{{\"stage\":\"{stage}\",\"ts\":{}}}\n", now_millis());
+    let path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("echobird-startup.log")));
+    if let Some(path) = path {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            use std::io::Write;
+            let _ = file.write_all(line.as_bytes());
+        }
+    }
+}
+
+fn now_millis() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or_default()
+}
+
 pub fn run() {
+    startup_breadcrumb("run:enter");
     // Hydrate the process PATH from the Windows registry (HKLM + HKCU
     // `Path`) before anything resolves executables — the Windows analog of
     // the Unix login-shell PATH sourcing in `utils::platform::shell_command_path`.
@@ -622,6 +661,7 @@ pub fn run() {
     #[cfg(windows)]
     crate::services::windows_path::hydrate();
 
+    startup_breadcrumb("run:generate_context");
     let context = tauri::generate_context!();
     let tray_icon_bytes: &'static [u8] = include_bytes!("../icons/tray-icon.png");
     services::bundled_assets::register(&BUNDLED);
@@ -653,6 +693,7 @@ pub fn run() {
         .manage(services::agent_loop::create_session_map())
         .manage(services::parasite::create_parasite_sessions())
         .setup(move |app| {
+            startup_breadcrumb("setup:enter");
             // Clean up orphaned llama-server from a previous EchoBird session.
             kill_stale_llama_server();
             log::info!("[Setup] Cleaned up any leftover llama-server processes");
@@ -671,6 +712,7 @@ pub fn run() {
                 }
             }
 
+            startup_breadcrumb("setup:resource_dir");
             // Initialize resource_dir for correct tools/ path resolution on all platforms
             // (especially Linux where exe is at /usr/bin but tools are at /usr/lib/com.echobird.ai/)
             if let Ok(res_dir) = app.path().resource_dir() {
@@ -679,6 +721,7 @@ pub fn run() {
                 log::warn!("[Setup] Could not resolve resource_dir");
             }
 
+            startup_breadcrumb("setup:before_log_plugin");
             // Enable file logging in all builds for diagnostics.
             //
             // Rotation tuned for the Feedback page's "copy last 30 lines"
@@ -704,11 +747,13 @@ pub fn run() {
                     .build(),
             )?;
 
+            startup_breadcrumb("setup:log_plugin_ok");
             // Bind and publish actual loopback ports before the UI can read
             // them. Logging and tool paths must be ready for URL migration.
             services::anthropic_proxy::spawn_proxy_task();
             services::smart_router::spawn_proxy_task();
 
+            startup_breadcrumb("setup:proxies_spawned");
             // Register shell plugin (open external URLs, folders)
             app.handle().plugin(tauri_plugin_shell::init())?;
 
@@ -722,6 +767,7 @@ pub fn run() {
             // "我的AI项目" Add dialog for icon / launcher / models.json paths)
             app.handle().plugin(tauri_plugin_dialog::init())?;
 
+            startup_breadcrumb("setup:plugins_registered");
             // Register autostart plugin (launch at login). Initialized with a
             // `--minimized` arg so a boot autostart launches the app hidden to
             // the tray - app_ready and the 1s fallback show below both check
@@ -759,6 +805,7 @@ pub fn run() {
             let state = app.state::<TrayState>();
             *state.locale.lock().unwrap() = user_locale;
 
+            startup_breadcrumb("setup:before_tray");
             TrayIconBuilder::with_id("main-tray")
                 .icon(tray_icon)
                 .menu(&tray_menu)
@@ -882,6 +929,7 @@ pub fn run() {
                 }
             }
 
+            startup_breadcrumb("setup:tray_ok");
             // Save window state on every resize/move. Skips writes when the
             // window is hidden (close-to-tray) — those events fire spurious
             // dimensions that would overwrite the real state with garbage.
@@ -927,6 +975,8 @@ pub fn run() {
                     });
                 }
             }
+
+            startup_breadcrumb("setup:complete");
 
             Ok(())
         })
