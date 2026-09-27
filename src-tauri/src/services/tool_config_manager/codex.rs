@@ -272,6 +272,21 @@ pub(crate) fn apply_codex(tool_id: &str, model_info: &ModelInfo) -> ApplyResult 
     apply_codex_at(tool_id, model_info, &codex_dir, &state_dir)
 }
 
+/// Integration-test entry point for [apply_codex_at].
+///
+/// `apply_codex_at` is `pub(crate)`, so the tests in `tests/` cannot reach it
+/// and a test would otherwise have to write to the real `~/.codex`. This
+/// re-exports it and nothing else.
+#[doc(hidden)]
+pub fn apply_codex_at_for_test(
+    tool_id: &str,
+    model_info: &ModelInfo,
+    codex_dir: &Path,
+    state_dir: &Path,
+) -> ApplyResult {
+    apply_codex_at(tool_id, model_info, codex_dir, state_dir)
+}
+
 pub(crate) fn apply_codex_at(
     tool_id: &str,
     model_info: &ModelInfo,

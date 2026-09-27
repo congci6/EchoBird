@@ -659,7 +659,7 @@ function VolcAkskModal({
     >
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div
-        className="relative w-[450px] max-w-[90vw] border border-cyber-border/30 bg-cyber-surface shadow-2xl rounded-xl overflow-hidden"
+        className="relative flex flex-col w-[450px] max-w-[90vw] max-h-[85vh] border border-cyber-border/30 bg-cyber-surface shadow-2xl rounded-xl overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="h-px w-full bg-cyber-border" />
@@ -1210,6 +1210,19 @@ export function AddModelModal() {
   const [isSavingModel, setIsSavingModel] = useState(false);
   const [probing, setProbing] = useState(false);
   const [protocolProbe, setProtocolProbe] = useState<ProtocolProbe | null>(null);
+  /** The exact form values the report describes.
+   *
+   *  A probe answers a question about ONE provider. Tying the answer to the
+   *  inputs it came from is what makes a stale report impossible rather than
+   *  merely unlikely: editing the URL or model makes the stored answer stop
+   *  matching, and it is then simply not shown. An effect that cleared state on
+   *  change would also work, but it renders the wrong value once first — and
+   *  a wrong "unsupported" verdict is worse than none, because the user reads
+   *  it as the new provider's answer. */
+  const [probedFor, setProbedFor] = useState<{
+    baseUrl: string;
+    modelId: string;
+  } | null>(null);
   const { addSelectedModel, updateSelectedModel, selectedIds } = useFreeModels();
   const {
     showAddModelModal,
@@ -1244,12 +1257,23 @@ export function AddModelModal() {
         model: newModelForm.modelId,
       })) as DialectReport[];
       setProtocolProbe({ reports });
+      setProbedFor({ baseUrl: newModelForm.baseUrl, modelId: newModelForm.modelId });
     } catch (error) {
       setProtocolProbe({ reports: [], error: String(error) });
+      setProbedFor({ baseUrl: newModelForm.baseUrl, modelId: newModelForm.modelId });
     } finally {
       setProbing(false);
     }
   };
+
+  // Only show a report taken against the values currently in the form.
+  const visibleProbe: ProtocolProbe | null =
+    protocolProbe &&
+    probedFor &&
+    probedFor.baseUrl === newModelForm.baseUrl &&
+    probedFor.modelId === newModelForm.modelId
+      ? protocolProbe
+      : null;
 
   if (!showAddModelModal) return null;
 
@@ -1326,7 +1350,11 @@ export function AddModelModal() {
         </div>
 
         {/* Form */}
-        <div className="px-5 pb-5">
+        {/* The report the protocol probe prints is taller than the form,
+            and the footer buttons must not be pushed out of the dialog by
+            it. Scroll the form body, not the whole dialog, so the header
+            and the save/cancel row stay put. */}
+        <div className="px-5 pb-5 flex-1 min-h-0 overflow-y-auto">
           <div className="space-y-4">
             <div>
               <label className="block text-xs text-cyber-text-secondary mb-1">
@@ -1465,9 +1493,9 @@ export function AddModelModal() {
                 >
                   {probing ? t('model.probeProtocolsRunning') : t('model.probeProtocols')}
                 </button>
-                {protocolProbe && (
+                {visibleProbe && (
                   <ul className="mt-1.5 space-y-0.5">
-                    {protocolProbe.reports.map((entry) => (
+                    {visibleProbe.reports.map((entry) => (
                       <li key={entry.protocol} className="flex items-start gap-1.5 text-[10px]">
                         <span
                           className={
