@@ -5,6 +5,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
+use crate::services::protocol::WireProtocol;
+
 const LEGACY_PROXY_URL_FRAGMENT: &str = "127.0.0.1:53682";
 const CONFIG_FILENAME: &str = "config.toml";
 const LEGACY_RELAY_FILENAME: &str = "codex.json";
@@ -66,8 +68,18 @@ fn migrate_legacy_proxy_config_from(codex_dir: &Path, relay_path: &Path) -> io::
         .and_then(|value| value.as_str())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "legacy model is missing"))?;
+    // The deleted proxy chose between forwarding `/v1/responses` verbatim and
+    // translating to Chat from this flag. Translate-to-Chat was the default,
+    // which is what the no-choice protocol now means, so only the passthrough
+    // side needs carrying over — otherwise a user whose gateway really does
+    // speak Responses would be silently downgraded to the bridge.
+    let api_protocol = relay
+        .get("responsesPassthrough")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+        .then(|| WireProtocol::OpenaiResponses.as_str().to_string());
     let model_info = crate::services::tool_config_manager::ModelInfo {
-        api_protocol: None,
+        api_protocol,
         name: relay
             .get("modelName")
             .and_then(|value| value.as_str())
@@ -203,5 +215,60 @@ mod tests {
         assert!(config.contains("base_url = \"https://api.pie-xian.com/v1\""));
         assert!(!config.contains(LEGACY_PROXY_URL_FRAGMENT));
         fs::remove_dir_all(dir).ok();
+    }
+
+    /// The deleted proxy's `responsesPassthrough` flag is the predecessor of
+    /// the protocol choice, and the two states it could be in have to survive
+    /// the migration on opposite sides: `false` meant "translate Responses to
+    /// Chat", which is what the no-choice protocol now does, and `true` meant
+    /// the gateway really does serve `/v1/responses` and wants the direct
+    /// path. Losing the second case would silently reroute a working
+    /// Responses-native supplier through the bridge.
+    #[test]
+    fn migration_carries_responses_passthrough_into_the_protocol_choice() {
+        let relay_json = |passthrough: bool| {
+            serde_json::json!({
+                "apiKey": "test-key",
+                "baseUrl": "https://provider.example/v1",
+                "actualModel": "provider-model",
+                "displayModel": "gpt-5.5",
+                "modelName": "supplier",
+                "relayMode": false,
+                "responsesPassthrough": passthrough
+            })
+            .to_string()
+        };
+        let legacy_config = "model = \"gpt-5.5\"\n\n[model_providers.OpenAI]\nbase_url = \"http://127.0.0.1:53682/v1\"\n";
+
+        // Passthrough off: the historical default, so the bridged Chat path.
+        let off = unique_tmpdir();
+        let off_relay = off.join(LEGACY_RELAY_FILENAME);
+        fs::write(off.join(CONFIG_FILENAME), legacy_config).unwrap();
+        fs::write(&off_relay, relay_json(false)).unwrap();
+        assert!(migrate_legacy_proxy_config_from(&off, &off_relay).unwrap());
+        let off_config = fs::read_to_string(off.join(CONFIG_FILENAME)).unwrap();
+        assert!(
+            off_config.contains(&format!(
+                "base_url = \"{}/v1\"",
+                crate::services::protocol_bridge::base_url()
+            )),
+            "passthrough=false must migrate to the bridge: {off_config}"
+        );
+        assert!(!off_config.contains("https://provider.example/v1"));
+        fs::remove_dir_all(off).ok();
+
+        // Passthrough on: the gateway speaks Responses, so keep it direct.
+        let on = unique_tmpdir();
+        let on_relay = on.join(LEGACY_RELAY_FILENAME);
+        fs::write(on.join(CONFIG_FILENAME), legacy_config).unwrap();
+        fs::write(&on_relay, relay_json(true)).unwrap();
+        assert!(migrate_legacy_proxy_config_from(&on, &on_relay).unwrap());
+        let on_config = fs::read_to_string(on.join(CONFIG_FILENAME)).unwrap();
+        assert!(
+            on_config.contains("base_url = \"https://provider.example/v1\""),
+            "passthrough=true must keep the direct Responses path: {on_config}"
+        );
+        assert!(!on_config.contains("gpt-5.5"));
+        fs::remove_dir_all(on).ok();
     }
 }

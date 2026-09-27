@@ -212,10 +212,21 @@ fn native_endpoint(
 
 /// Decide how Codex reaches this model, starting the bridge when needed.
 ///
-/// Codex only ever speaks the Responses API. Previously that made Responses a
-/// hard requirement: a vendor exposing only Chat Completions simply could not
-/// be used with Codex. Routing through the bridge removes that constraint —
-/// the user picks the protocol, and EchoBird converts.
+/// Codex only ever speaks the Responses API, so a provider serving any other
+/// dialect has to be reached through the bridge, which converts in both
+/// directions. The user picks the dialect; the bridge is the fallback.
+///
+/// The no-choice default is Chat Completions over the bridge, NOT a direct
+/// Responses connection. That is deliberately the behaviour every EchoBird
+/// config had before the removed Responses-to-Chat proxy (`5d95bd2f`): with
+/// `relayMode` and `responsesPassthrough` both false, Codex talked to the
+/// local proxy and the proxy translated to Chat. Defaulting to a direct
+/// Responses connection instead broke every gateway that does not implement
+/// `/v1/responses` — such a gateway answers `503 no available channel` — while
+/// still looking like a working configuration. Nearly every OpenAI-compatible
+/// gateway serves Chat Completions, so the bridged default works everywhere
+/// and keeps the real model id flowing; a vendor that genuinely speaks
+/// Responses opts into the direct path by choosing `openai-responses`.
 fn codex_route(
     model_info: &ModelInfo,
     base_url: &str,
@@ -226,9 +237,9 @@ fn codex_route(
         .api_protocol
         .as_deref()
         .and_then(WireProtocol::parse)
-        // A config written before protocol selection existed means "Responses",
-        // which preserves the direct-connect behaviour it was written for.
-        .unwrap_or(WireProtocol::OpenaiResponses);
+        // No explicit choice means "the dialect that has always worked",
+        // which is the bridge translating to Chat Completions.
+        .unwrap_or(WireProtocol::OpenaiChat);
     let (native, native_base) = native_endpoint(model_info, base_url, selected);
     if native == WireProtocol::OpenaiResponses {
         return CodexRoute::Direct {
@@ -843,10 +854,15 @@ mod tests {
     /// ("no available channel for model X") when handed a label it has never
     /// heard of. This is the exact shape that produced the `gpt-5.5` 503 —
     /// the label `gpt-5.5` was sent while the real id was `space-bunny-free`.
+    ///
+    /// Only `openai-responses` connects directly. Everything else, including
+    /// the no-choice default, is bridged: a gateway that does not implement
+    /// `/v1/responses` rejects a direct Responses call with that same 503, so
+    /// the default has to translate to Chat the way it always has.
     #[test]
     fn codex_route_targets_the_real_model_id_not_the_display_name() {
         for (protocol, expect_direct) in [
-            (None, true),
+            (None, false),
             (Some("openai-responses"), true),
             (Some("openai-chat"), false),
             (Some("anthropic"), false),
@@ -876,6 +892,39 @@ mod tests {
                     );
                     assert_eq!(target.base_url, "https://api.example.com/v1");
                 }
+            }
+        }
+    }
+
+    /// The default must reproduce the pre-`5d95bd2f` proxy behaviour exactly:
+    /// Chat Completions, reached through the bridge, carrying the real id.
+    /// A direct Responses connection here is the regression that made a
+    /// working `space-bunny-free` supplier answer `503 no available channel`.
+    #[test]
+    fn no_explicit_protocol_bridges_to_chat_completions() {
+        let model_info = info(
+            "gpt-5.5",
+            "space-bunny-free",
+            "https://api.example.com/v1",
+            None,
+        );
+        match codex_route(
+            &model_info,
+            "https://api.example.com/v1",
+            "test-key",
+            "space-bunny-free",
+        ) {
+            CodexRoute::Bridge { target } => {
+                assert_eq!(
+                    target.protocol,
+                    WireProtocol::OpenaiChat,
+                    "the default must translate to Chat Completions"
+                );
+                assert_eq!(target.model, "space-bunny-free");
+                assert_eq!(target.base_url, "https://api.example.com/v1");
+            }
+            CodexRoute::Direct { base_url } => {
+                panic!("no explicit choice must not connect direct, got {base_url}");
             }
         }
     }
