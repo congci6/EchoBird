@@ -153,8 +153,11 @@ mod tests {
         fs::remove_dir_all(dir).ok();
     }
 
-    #[test]
-    fn proxy_config_is_migrated_to_direct_responses() {
+    // Applying a model makes the protocol bridge bind a loopback listener,
+    // which needs a Tokio reactor; these exercise that path, so they cannot
+    // run on a bare `#[test]` thread.
+    #[tokio::test]
+    async fn proxy_config_is_migrated_to_the_bridge() {
         let dir = unique_tmpdir();
         let relay = dir.join(LEGACY_RELAY_FILENAME);
         fs::write(
@@ -177,7 +180,14 @@ mod tests {
         assert!(migrate_legacy_proxy_config_from(&dir, &relay).unwrap());
         let config = fs::read_to_string(dir.join(CONFIG_FILENAME)).unwrap();
         assert!(config.contains("model = \"provider-model\""));
-        assert!(config.contains("base_url = \"https://provider.example/v1\""));
+        // Codex only speaks Responses, and the bridge is what pins the model
+        // id before a request can reach the supplier, so the migrated config
+        // points at the local bridge. The old proxy's own URL must be gone.
+        let bridge = crate::services::protocol_bridge::base_url();
+        assert!(
+            config.contains(&format!("base_url = \"{bridge}/v1\"")),
+            "{config}"
+        );
         assert!(config.contains("wire_api = \"responses\""));
         assert!(config.contains("web_search = \"live\""));
         assert!(!config.contains(LEGACY_PROXY_URL_FRAGMENT));
@@ -185,8 +195,11 @@ mod tests {
         fs::remove_dir_all(dir).ok();
     }
 
-    #[test]
-    fn migration_prefers_actual_model_over_the_display_label() {
+    // Applying a model makes the protocol bridge bind a loopback listener,
+    // which needs a Tokio reactor; these exercise that path, so they cannot
+    // run on a bare `#[test]` thread.
+    #[tokio::test]
+    async fn migration_prefers_actual_model_over_the_display_label() {
         // The relay file of a supplier that exposes a model under a friendly
         // label carries BOTH: `displayModel` is what the UI shows, and
         // `actualModel` is the id the provider actually serves. Migrating on
@@ -223,7 +236,11 @@ mod tests {
             !config.contains("gpt-5.5"),
             "the display label leaked into the migrated config: {config}"
         );
-        assert!(config.contains("base_url = \"https://api.pie-xian.com/v1\""));
+        let bridge = crate::services::protocol_bridge::base_url();
+        assert!(
+            config.contains(&format!("base_url = \"{bridge}/v1\"")),
+            "{config}"
+        );
         assert!(!config.contains(LEGACY_PROXY_URL_FRAGMENT));
         fs::remove_dir_all(dir).ok();
     }
@@ -235,8 +252,11 @@ mod tests {
     /// the gateway really does serve `/v1/responses` and wants the direct
     /// path. Losing the second case would silently reroute a working
     /// Responses-native supplier through the bridge.
-    #[test]
-    fn migration_carries_responses_passthrough_into_the_protocol_choice() {
+    // Applying a model makes the protocol bridge bind a loopback listener,
+    // which needs a Tokio reactor; these exercise that path, so they cannot
+    // run on a bare `#[test]` thread.
+    #[tokio::test]
+    async fn migration_carries_responses_passthrough_into_the_protocol_choice() {
         let relay_json = |passthrough: bool| {
             serde_json::json!({
                 "apiKey": "test-key",
@@ -268,7 +288,13 @@ mod tests {
         assert!(!off_config.contains("https://provider.example/v1"));
         fs::remove_dir_all(off).ok();
 
-        // Passthrough on: the gateway speaks Responses, so keep it direct.
+        // Passthrough on: the gateway speaks Responses natively. The config is
+        // now the same bridge address as the off case — the bridge is the hop
+        // that pins the model id for every dialect, and it forwards verbatim
+        // when the target is Responses. What the flag still decides is the
+        // bridge TARGET dialect, which `tool_config_manager` maps from the
+        // `api_protocol` this migration carries over; that mapping is covered
+        // by `a_provider_without_a_dedicated_endpoint_is_reached_on_its_openai_base`.
         let on = unique_tmpdir();
         let on_relay = on.join(LEGACY_RELAY_FILENAME);
         fs::write(on.join(CONFIG_FILENAME), legacy_config).unwrap();
@@ -276,9 +302,13 @@ mod tests {
         assert!(migrate_legacy_proxy_config_from(&on, &on_relay).unwrap());
         let on_config = fs::read_to_string(on.join(CONFIG_FILENAME)).unwrap();
         assert!(
-            on_config.contains("base_url = \"https://provider.example/v1\""),
-            "passthrough=true must keep the direct Responses path: {on_config}"
+            on_config.contains(&format!(
+                "base_url = \"{}/v1\"",
+                crate::services::protocol_bridge::base_url()
+            )),
+            "passthrough=true still routes the Responses dialect: {on_config}"
         );
+        assert!(!on_config.contains("https://provider.example/v1"));
         assert!(!on_config.contains("gpt-5.5"));
         fs::remove_dir_all(on).ok();
     }

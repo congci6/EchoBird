@@ -790,7 +790,7 @@ fn list_accounts_at(
         };
         accounts.push(build_summary(metadata, active_id.as_deref(), store_dir));
     }
-    accounts.sort_by(|left, right| left.email.to_lowercase().cmp(&right.email.to_lowercase()));
+    accounts.sort_by_key(|account| account.email.to_lowercase());
     Ok(accounts)
 }
 

@@ -1199,7 +1199,7 @@ pub fn family_history(family: Family, offset: usize, limit: usize) -> Vec<SavedS
     if family == Family::DeepSeek {
         let mut candidates: Vec<(SystemTime, PathBuf, Family)> = Vec::new();
         collect_dsh_paths(&family.root(&home), family, &mut candidates);
-        candidates.sort_by(|a, b| b.0.cmp(&a.0));
+        candidates.sort_by_key(|(time, _, _)| std::cmp::Reverse(*time));
         return candidates
             .into_iter()
             .skip(offset)
@@ -1218,7 +1218,7 @@ pub fn family_history(family: Family, offset: usize, limit: usize) -> Vec<SavedS
         Family::OpenCode | Family::Hermes | Family::MiMo | Family::DeepSeek => unreachable!(),
     }
 
-    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+    candidates.sort_by_key(|(time, _, _)| std::cmp::Reverse(*time));
     candidates
         .into_iter()
         .skip(offset)

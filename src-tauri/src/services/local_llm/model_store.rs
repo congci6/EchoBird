@@ -270,7 +270,7 @@ pub async fn download_model(
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| file_name.clone());
         let save_path = PathBuf::from(&download_dir).join(&basename);
-        let temp_path = save_path.with_file_name(format!("{}.downloading", &basename));
+        let temp_path = save_path.with_file_name(format!("{}.downloading", basename));
 
         // Skip shards already fully present on disk (e.g. resuming after
         // app restart, or partial completion before). isDownloaded check
@@ -529,7 +529,7 @@ pub fn cancel_download(app_handle: &tauri::AppHandle, target_files: Option<Vec<S
                 .file_name()
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_else(|| name.clone());
-            let temp_path = PathBuf::from(&download_dir).join(format!("{}.downloading", &basename));
+            let temp_path = PathBuf::from(&download_dir).join(format!("{}.downloading", basename));
             if temp_path.exists() {
                 let _ = std::fs::remove_file(&temp_path);
                 log::info!("[ModelStore] Cleaned temp file: {}", temp_path.display());

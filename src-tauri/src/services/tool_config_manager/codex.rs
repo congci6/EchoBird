@@ -167,7 +167,14 @@ fn codex_catalog_referenced(content: &str, our_path: &str) -> bool {
 /// model has a dedicated endpoint for that dialect the bridge targets it
 /// there; otherwise the OpenAI-compatible base is treated as Chat Completions
 /// and the bridge does the translation.
-fn native_endpoint(
+///
+/// Shared with the central router in `tool_config_manager`, which routes every
+/// other tool in the catalogue. The mapping has to be identical for all of
+/// them: putting the user's choice in `BridgeTarget.protocol` instead of the
+/// provider's own dialect is what makes a selection silently do nothing, since
+/// the bridge would forward e.g. a Gemini body to a supplier serving only Chat
+/// Completions and answer 404 rather than translating anything.
+pub fn native_endpoint(
     model_info: &ModelInfo,
     base_url: &str,
     selected: WireProtocol,
@@ -186,11 +193,15 @@ fn native_endpoint(
                 None => (WireProtocol::OpenaiChat, base_url.to_string()),
             }
         }
-        // Gemini addresses a model in the path and has no separate URL field,
-        // so the OpenAI-compatible base carries the endpoint.
-        WireProtocol::GeminiGenerateContent => {
-            (WireProtocol::GeminiGenerateContent, base_url.to_string())
-        }
+        // Gemini addresses the model in the path, and `ModelInfo` has no field
+        // for a Gemini base URL — only `base_url` and `anthropic_url`. There is
+        // therefore no way to tell a supplier that genuinely serves
+        // `/v1beta/models/{id}:generateContent` from one that only serves Chat,
+        // and guessing Gemini hands the request to an endpoint that answers 404
+        // instead of translating it. Chat Completions is what nearly every
+        // OpenAI-compatible gateway serves, so an unverified Gemini choice
+        // degrades to it and the bridge converts.
+        WireProtocol::GeminiGenerateContent => (WireProtocol::OpenaiChat, base_url.to_string()),
         WireProtocol::OpenaiChat | WireProtocol::OpenaiResponses => {
             (selected, base_url.to_string())
         }
@@ -351,10 +362,7 @@ pub(crate) fn apply_codex_at(
     // Every dialect goes through the local bridge, Responses included: that
     // hop is what pins the model id before it can reach the provider.
     crate::services::protocol_bridge::ensure_serving(codex_route(
-        model_info,
-        &base_url,
-        api_key,
-        model_id,
+        model_info, &base_url, api_key, model_id,
     ));
     let codex_base_url = format!("{}/v1", crate::services::protocol_bridge::base_url());
 
@@ -868,8 +876,7 @@ mod tests {
                 "space-bunny-free",
             );
             assert_eq!(
-                target.model,
-                "space-bunny-free",
+                target.model, "space-bunny-free",
                 "{protocol:?} leaked the display name upstream"
             );
             assert_eq!(target.base_url, "https://api.example.com/v1");
