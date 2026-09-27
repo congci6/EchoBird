@@ -152,6 +152,7 @@ pub(super) fn read_opencode() -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }
 
@@ -185,6 +186,7 @@ pub(super) fn read_opencode_native_config(path: &Path) -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }
 

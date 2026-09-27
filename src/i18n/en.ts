@@ -209,6 +209,9 @@ const en: Translations = {
   'model.apiProtocolGemini': 'generateContent',
   'model.apiProtocolGeminiHint':
     'Gemini generateContent. Works even when the provider only serves another protocol.',
+  'model.responsesFallback': 'Provider does not support Responses',
+  'model.responsesFallbackHint':
+    'Degrade to Chat Completions when the provider answers "not implemented" on /v1/responses.',
   'model.invalidOpenaiUrl': 'Enter a valid OpenAI URL.',
   'model.editConfig': 'EDIT MODEL CONFIG',
   'model.deleteTitle': 'DELETE MODEL',

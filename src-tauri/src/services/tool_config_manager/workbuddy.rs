@@ -127,5 +127,6 @@ pub(super) fn read_workbuddy(tool_id: &str) -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }

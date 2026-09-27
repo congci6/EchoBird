@@ -202,5 +202,6 @@ pub(super) fn read_openclaw() -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }

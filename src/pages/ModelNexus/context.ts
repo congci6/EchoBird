@@ -13,7 +13,10 @@ export interface NewModelForm {
   modelId: string;
   /** Wire protocol to run this model through. '' = no explicit choice, so
    *  every tool uses the dialect it speaks natively. */
-  apiProtocol: string; // Quick-pick model id options, carried over from a right-panel directory
+  apiProtocol: string;
+  /** Degrade a Responses protocol choice to Chat Completions. Only meaningful
+   *  when `apiProtocol` is Responses; the mapping ignores it otherwise. */
+  responsesFallback: boolean; // Quick-pick model id options, carried over from a right-panel directory
   // entry click. ≥2 options → the Add-Model modal shows a dropdown above the
   // model id input. Absent/empty → no dropdown (manual add / edit). Purely a
   // convenience picker; the model id input is always free-editable.

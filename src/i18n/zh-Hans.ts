@@ -192,6 +192,8 @@ const zhHans: Partial<Translations> = {
   'model.apiProtocolAnthropicHint': 'Anthropic Messages — /v1/messages',
   'model.apiProtocolGemini': 'generateContent',
   'model.apiProtocolGeminiHint': 'Gemini generateContent。即使供应商只提供其他协议也能使用。',
+  'model.responsesFallback': '供应商不支持 Responses',
+  'model.responsesFallbackHint': '当供应商对 /v1/responses 返回「not implemented」时，自动转换为 Chat Completions。',
   'model.invalidOpenaiUrl': '请输入有效的 OpenAI 地址。',
   'model.editConfig': '编辑模型配置',
   'model.deleteTitle': '删除模型',
