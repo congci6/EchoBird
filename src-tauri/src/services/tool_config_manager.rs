@@ -268,6 +268,23 @@ fn model_input_modalities_for(model_id: &str) -> &'static [&'static str] {
 //  APPLY MODEL �?main entry point
 // ════════════════════════════════════════════════════════════════
 
+/// The path a tool's own config is given so its request lands on the bridge's
+/// route for `client_protocol`.
+///
+/// The bridge serves all four dialects from one port, so for three of them a
+/// plain OpenAI-style base is enough: the tool appends `/chat/completions` or
+/// `/responses` or `/messages` itself, exactly as it would for a real
+/// provider. Gemini is the exception — it addresses the model inside the path
+/// (`/v1beta/models/{model}:generateContent`), so handing the tool `/v1` would
+/// point it at a collection endpoint and drop the model on the floor.
+fn bridge_client_base(client_protocol: WireProtocol) -> &'static str {
+    if client_protocol.model_in_path() {
+        "/v1beta"
+    } else {
+        "/v1"
+    }
+}
+
 /// Point a tool at the local protocol bridge when the model is pinned to a
 /// dialect that tool cannot speak itself.
 ///
@@ -321,17 +338,26 @@ fn route_through_bridge_if_needed(tool_id: &str, model_info: &mut ModelInfo) {
         return;
     };
 
+    // The upstream dialect is the one the PROVIDER speaks, which is not
+    // necessarily the one the user picked. `native_endpoint` is the same
+    // mapping codex.rs uses, kept identical on purpose: writing `selected`
+    // straight into the target makes the choice a no-op, because the bridge
+    // would then forward e.g. a Gemini request to a supplier serving only Chat
+    // Completions and answer 404 instead of translating anything.
+    let (native, native_base) = codex::native_endpoint(model_info, &upstream, selected);
+
     crate::services::protocol_bridge::ensure_serving(
         crate::services::protocol_bridge::BridgeTarget {
-            base_url: upstream,
+            base_url: native_base,
             api_key: model_info.api_key.clone().unwrap_or_default(),
             model: model_info.model.clone().unwrap_or_default(),
-            protocol: selected,
+            protocol: native,
         },
     );
     model_info.base_url = Some(format!(
-        "{}/v1",
-        crate::services::protocol_bridge::base_url()
+        "{}{}",
+        crate::services::protocol_bridge::base_url(),
+        bridge_client_base(selected)
     ));
     log::info!(
         "[ProtocolBridge] {tool_id} routed through the bridge as {}",
@@ -935,6 +961,99 @@ mod tests {
             relay_mode: None,
             one_m_context: None,
         }
+    }
+
+    /// The bridge target a model resolves to, without starting a listener.
+    ///
+    /// `route_through_bridge_if_needed` has to bind a port, so the decision
+    /// it makes is factored out here where it can be asserted directly. The
+    /// single `BridgeTarget` is what the whole design turns on: the upstream
+    /// protocol has to be the one the PROVIDER speaks, never the one the user
+    /// picked, or no translation happens at all.
+    fn resolved_target(
+        model_info: &ModelInfo,
+    ) -> Option<crate::services::protocol_bridge::BridgeTarget> {
+        let selected = model_info
+            .api_protocol
+            .as_deref()
+            .and_then(WireProtocol::parse)?;
+        let upstream = model_info
+            .base_url
+            .clone()
+            .filter(|url| !url.trim().is_empty())?;
+        let (native, native_base) = codex::native_endpoint(model_info, &upstream, selected);
+        Some(crate::services::protocol_bridge::BridgeTarget {
+            base_url: native_base,
+            api_key: model_info.api_key.clone().unwrap_or_default(),
+            model: model_info.model.clone().unwrap_or_default(),
+            protocol: native,
+        })
+    }
+
+    /// A provider that has no dedicated endpoint for a dialect is reached on
+    /// the OpenAI-compatible base, which every gateway serves.
+    ///
+    /// Responses is deliberately taken at face value — a supplier publishing
+    /// `/v1/responses` keeps its fidelity through the bridge's verbatim
+    /// passthrough, and `codex.rs` chose that trade-off on purpose. Anthropic
+    /// falls back to Chat unless an Anthropic URL is configured. Gemini always
+    /// falls back: `ModelInfo` has no Gemini base-URL field, so there is no way
+    /// to tell a real Gemini supplier from a Chat-only one, and guessing Gemini
+    /// gets a 404 instead of a translation.
+    #[test]
+    fn a_provider_without_a_dedicated_endpoint_is_reached_on_its_openai_base() {
+        for (picked, expect_native) in [
+            (WireProtocol::AnthropicMessages, WireProtocol::OpenaiChat),
+            (
+                WireProtocol::GeminiGenerateContent,
+                WireProtocol::OpenaiChat,
+            ),
+            (WireProtocol::OpenaiResponses, WireProtocol::OpenaiResponses),
+        ] {
+            let info = routing_model(Some(picked.as_str()));
+            let target = resolved_target(&info).expect("resolvable");
+            assert_eq!(target.protocol, expect_native, "{picked:?}");
+            assert_eq!(target.base_url, "https://provider.example/v1");
+        }
+    }
+
+    /// A provider that DOES publish an Anthropic endpoint is reached as
+    /// Anthropic, and on that endpoint rather than the OpenAI-compatible one.
+    #[test]
+    fn an_anthropic_choice_uses_the_configured_anthropic_endpoint() {
+        let mut info = routing_model(Some("anthropic-messages"));
+        info.anthropic_url = Some("https://anth.example/v1".to_string());
+        let target = resolved_target(&info).expect("resolvable");
+        assert_eq!(target.protocol, WireProtocol::AnthropicMessages);
+        assert_eq!(target.base_url, "https://anth.example/v1");
+    }
+
+    /// Responses is a real endpoint on some gateways, so it is the one choice
+    /// that may be taken at face value when the provider has no separate URL
+    /// for it: a supplier serving `/v1/responses` keeps its fidelity through
+    /// the bridge's verbatim passthrough.
+    #[test]
+    fn a_responses_choice_is_taken_at_face_value() {
+        let info = routing_model(Some("openai-responses"));
+        let target = resolved_target(&info).expect("resolvable");
+        assert_eq!(target.protocol, WireProtocol::OpenaiResponses);
+    }
+
+    /// The bridge serves every dialect on one port, so the URL a tool is
+    /// handed is the bridge's own base plus whatever the tool itself appends.
+    /// Gemini is the exception: it addresses the model in the PATH, so a bare
+    /// `/v1` would make the client call a collection endpoint and lose the
+    /// model entirely.
+    #[test]
+    fn the_bridge_url_is_a_plain_base_except_for_gemini() {
+        assert_eq!(bridge_client_base(WireProtocol::OpenaiChat), "/v1");
+        assert_eq!(bridge_client_base(WireProtocol::OpenaiResponses), "/v1");
+        assert_eq!(bridge_client_base(WireProtocol::AnthropicMessages), "/v1");
+        assert_eq!(
+            bridge_client_base(WireProtocol::GeminiGenerateContent),
+            "/v1beta",
+            "Gemini addresses the model in the path, so /v1 would drop it"
+        );
     }
 
     #[test]
