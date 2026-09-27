@@ -212,7 +212,8 @@ const zhHant: Partial<Translations> = {
   'model.apiProtocolGemini': 'generateContent',
   'model.apiProtocolGeminiHint': 'Gemini generateContent。即使供應商只提供其他協定也能使用。',
   'model.responsesFallback': '供應商不支援 Responses',
-  'model.responsesFallbackHint': '當供應商對 /v1/responses 回傳「not implemented」時，自動轉換為 Chat Completions。',
+  'model.responsesFallbackHint':
+    '當供應商對 /v1/responses 回傳「not implemented」時，自動轉換為 Chat Completions。',
   'model.invalidOpenaiUrl': '請輸入有效的 OpenAI 位址。',
   'model.editConfig': '編輯模型設定',
   'model.deleteTitle': '刪除模型',
