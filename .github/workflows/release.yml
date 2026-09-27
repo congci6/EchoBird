@@ -147,6 +147,38 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
 
+      # Also ship the bare Windows binary, next to the installer.
+      #
+      # `echobird.exe` is what the MSI wraps, and it is already built by the
+      # time bundling starts — it just never left the runner, because
+      # tauri-action only uploads what the bundler produced. Users who cannot
+      # run an MSI (no admin rights, a locked-down machine, a portable drive)
+      # have no way to get the app at all today, and asking for "the exe" and
+      # receiving "here is a .msi" is not an answer.
+      #
+      # It is NOT self-installing and has no updater: it is the same portable
+      # binary the bundle contains, with WebView2 supplied by the OS (present
+      # by default on Windows 11 and on any Windows 10 with the Edge updates).
+      - name: Upload the portable Windows executable
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          EXE='src-tauri/target/release/echobird.exe'
+          if [ ! -f "$EXE" ]; then
+            echo "::error::expected $EXE to exist after the build"
+            exit 1
+          fi
+          VER="${TAG#v}"
+          cp "$EXE" "/tmp/EchoBird_${VER}_Windows_x64_portable.exe"
+          gh release upload "${TAG}" "/tmp/EchoBird_${VER}_Windows_x64_portable.exe" \
+            --clobber --repo "${REPO}"
+          echo "uploaded portable exe"
+
   rename-assets:
     # Tauri's bundler uses inconsistent filenames (no platform label, RPM "-1"
     # release counter, version-less updater bundle). Rename every asset on the
