@@ -85,6 +85,7 @@ pub(super) fn read_echobird_relay(tool_id: &str) -> Option<ModelInfo> {
     }
 
     Some(ModelInfo {
+        api_protocol: None,
         name: config
             .get("modelName")
             .and_then(|v| v.as_str())

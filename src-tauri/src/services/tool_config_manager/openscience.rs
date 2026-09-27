@@ -270,6 +270,7 @@ pub(super) fn read_openscience() -> Option<ModelInfo> {
     };
 
     Some(ModelInfo {
+        api_protocol: None,
         // Use direct .get() lookups instead of a JSON pointer for the model
         // name: model_id can contain '/' (e.g. "openai/gpt-4o-mini"), and a
         // pointer like "/models/openai/gpt-4o-mini/name" would traverse into a

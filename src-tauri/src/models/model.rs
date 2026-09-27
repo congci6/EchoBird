@@ -39,6 +39,12 @@ pub struct ModelConfig {
     pub api_key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub anthropic_url: Option<String>,
+    /// Which wire protocol the user picked for this model. Absent means "use
+    /// whatever each tool speaks natively", which is what every config written
+    /// before protocol selection existed relies on. Accepted values are the
+    /// `WireProtocol::as_str` names.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "type")]
     pub model_type: Option<ModelType>,
@@ -80,6 +86,7 @@ mod tests {
             base_url: "https://example.com/v1".to_string(),
             api_key: "key".to_string(),
             anthropic_url: None,
+            api_protocol: None,
             model_type: Some(ModelType::Cloud),
             openai_tested: None,
             anthropic_tested: None,

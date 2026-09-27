@@ -27,6 +27,7 @@ import { X, Box, ExternalLink, Plus, Lock, Unlock, RefreshCw, GripVertical } fro
 import { ModelCard, ModelCardSkeleton, getModelIcon, ModelIdCombobox } from '../../components';
 import { useToast } from '../../components/Toast';
 import { useI18n } from '../../hooks/useI18n';
+import type { TKey } from '../../i18n';
 import * as api from '../../api/tauri';
 import type { ModelConfig } from '../../api/types';
 import { normalizeAnthropicUrl, normalizeOpenaiUrl } from '../../utils/normalizeUrl';
@@ -44,6 +45,31 @@ const isVolcengineUrl = (baseUrl: string, anthropicUrl?: string | null) => {
   const url = (baseUrl || anthropicUrl || '').toLowerCase();
   return url.includes('ark.cn-beijing') || url.includes('volcengine') || url.includes('volces.com');
 };
+
+/** The wire protocols a model can be pinned to. '' is the "no choice" default
+ *  that leaves every tool on the dialect it already speaks.
+ *
+ *  These ids are the backend's `WireProtocol::as_str` names — the backend
+ *  normalizes whatever arrives here and drops anything it doesn't recognise. */
+const API_PROTOCOL_OPTIONS: { value: string; label: TKey; hint: TKey }[] = [
+  { value: '', label: 'model.apiProtocolAuto', hint: 'model.apiProtocolAutoHint' },
+  { value: 'openai-chat', label: 'model.apiProtocolChat', hint: 'model.apiProtocolChatHint' },
+  {
+    value: 'openai-responses',
+    label: 'model.apiProtocolResponses',
+    hint: 'model.apiProtocolResponsesHint',
+  },
+  {
+    value: 'anthropic-messages',
+    label: 'model.apiProtocolAnthropic',
+    hint: 'model.apiProtocolAnthropicHint',
+  },
+  {
+    value: 'gemini-generate-content',
+    label: 'model.apiProtocolGemini',
+    hint: 'model.apiProtocolGeminiHint',
+  },
+];
 
 const visibleModelNexusModels = (models: ModelConfig[]) =>
   models.filter(
@@ -91,6 +117,7 @@ export function ModelNexusProvider({ children }: { children: React.ReactNode }) 
     anthropicUrl: '',
     apiKey: '',
     modelId: '',
+    apiProtocol: '',
   });
 
   const closeModelModal = useCallback(() => {
@@ -147,6 +174,7 @@ export function ModelNexusProvider({ children }: { children: React.ReactNode }) 
         anthropicUrl: freshModel.anthropicUrl || '',
         apiKey: freshModel.apiKey,
         modelId: freshModel.modelId || '',
+        apiProtocol: freshModel.apiProtocol || '',
       });
       setShowAddModelModal(true);
     },
@@ -903,6 +931,7 @@ export function ModelNexusMain() {
                       anthropicUrl: '',
                       apiKey: '',
                       modelId: '',
+                      apiProtocol: '',
                     });
                     setEditingModelId(null);
                     setShowAddModelModal(true);
@@ -1109,6 +1138,7 @@ export function ModelNexusPanel() {
         // Default to the curated default, else the first listed id, else blank.
         modelId: entry.modelId || options[0] || '',
         modelIdOptions: options,
+        apiProtocol: '',
       });
       setEditingModelId(null);
       setShowAddModelModal(true);
@@ -1314,8 +1344,49 @@ export function AddModelModal() {
             </div>
             <div>
               <label className="block text-xs text-cyber-text-secondary mb-1">
-                {t('model.apiKey')}
+                {t('model.apiProtocol')}
               </label>
+              {/* A segmented row rather than a <select>: the five choices are
+                  short enough to sit side by side, so the current pick is
+                  readable at a glance instead of hidden behind a dropdown.
+                  The active button carries the hint, which is the part that
+                  actually matters — whether EchoBird will have to convert. */}
+              <div className="flex flex-wrap gap-1">
+                {API_PROTOCOL_OPTIONS.map((option) => {
+                  const active = newModelForm.apiProtocol === option.value;
+                  return (
+                    <button
+                      key={option.value || 'auto'}
+                      type="button"
+                      title={t(option.hint)}
+                      onClick={() =>
+                        setNewModelForm((prev) => ({ ...prev, apiProtocol: option.value }))
+                      }
+                      className={[
+                        'px-2 py-1 text-[11px] font-mono border rounded-button transition-colors',
+                        active
+                          ? 'border-cyber-text bg-cyber-text/15 text-cyber-text'
+                          : 'border-cyber-border text-cyber-text-secondary hover:text-cyber-text hover:border-cyber-text/60',
+                      ].join(' ')}
+                    >
+                      {t(option.label)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-1.5 text-[10px] leading-snug text-cyber-text-secondary">
+                {t(
+                  (
+                    API_PROTOCOL_OPTIONS.find((o) => o.value === newModelForm.apiProtocol) ??
+                    API_PROTOCOL_OPTIONS[0]
+                  ).hint
+                )}
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs text-cyber-text-secondary mb-1">
+                {t('model.apiKey')}
+              </label>{' '}
               <div className="relative">
                 <input
                   type="text"
@@ -1448,6 +1519,7 @@ export function AddModelModal() {
                     anthropicUrl: newModelForm.anthropicUrl,
                     apiKey: newModelForm.apiKey,
                     modelId: newModelForm.modelId,
+                    apiProtocol: newModelForm.apiProtocol,
                   });
                   if (updatedModel) {
                     updateSelectedModel({
@@ -1468,6 +1540,7 @@ export function AddModelModal() {
                     apiKey: newModelForm.apiKey,
                     modelId: newModelForm.modelId,
                     scope: modelModalDestination === 'freeRouter' ? 'smartRouter' : 'modelCenter',
+                    apiProtocol: newModelForm.apiProtocol || undefined,
                   });
                   if (modelModalDestination === 'freeRouter') {
                     try {
@@ -1495,6 +1568,7 @@ export function AddModelModal() {
                   anthropicUrl: '',
                   apiKey: '',
                   modelId: '',
+                  apiProtocol: '',
                 });
                 setShowAddModelModal(false);
                 setModelModalDestination('modelNexus');

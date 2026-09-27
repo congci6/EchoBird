@@ -13,6 +13,7 @@ export async function addModel(input: {
   anthropicUrl?: string;
   modelId?: string;
   scope?: 'modelCenter' | 'smartRouter';
+  apiProtocol?: string;
 }): Promise<ModelConfig> {
   const result = await invoke<ModelConfig>('add_model', { input });
   window.dispatchEvent(new Event('models-changed'));
@@ -33,6 +34,7 @@ export async function updateModel(
     apiKey?: string;
     anthropicUrl?: string;
     modelId?: string;
+    apiProtocol?: string;
   }
 ): Promise<ModelConfig | null> {
   const result = await invoke<ModelConfig | null>('update_model', { internalId, updates });

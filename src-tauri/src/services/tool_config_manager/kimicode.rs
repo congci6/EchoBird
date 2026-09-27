@@ -257,6 +257,7 @@ fn read_kimi_at(config_path: &std::path::Path) -> Option<ModelInfo> {
         (Some(base_url), None, "openai")
     };
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model_id.clone()),
         model: Some(model_id),
         base_url: base,

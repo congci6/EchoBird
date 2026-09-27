@@ -1612,6 +1612,16 @@ pub fn get_tool_config_mapping(tool_id: &str) -> Option<(ToolDefinition, PathBuf
     })
 }
 
+/// The wire protocols a tool advertises support for, from its bundled
+/// `paths.json` `apiProtocol` list. `None` when the tool is unknown or
+/// declares no protocol support (a tool with nothing to configure).
+pub fn tool_api_protocols(tool_id: &str) -> Option<Vec<String>> {
+    get_definitions()
+        .into_iter()
+        .find(|def| def.id == tool_id)
+        .map(|def| def.paths_config.api_protocol)
+}
+
 /// Get the CLI command for a tool (from paths.json "command" field)
 pub fn get_tool_command(tool_id: &str) -> Option<String> {
     let defs = get_definitions();

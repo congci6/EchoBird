@@ -178,6 +178,7 @@ fn read_at(dir: &Path) -> Option<ModelInfo> {
     let is_anthropic = yaml_get(provider, "api")?.as_str()? == "anthropic-messages";
     let endpoint = yaml_get(provider, "baseUrl")?.as_str()?.to_string();
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(
             yaml_get(model, "name")
                 .and_then(Value::as_str)

@@ -133,6 +133,7 @@ pub(super) fn read_opencode() -> Option<ModelInfo> {
     }
 
     Some(ModelInfo {
+        api_protocol: None,
         name: config
             .get("modelName")
             .and_then(|v| v.as_str())
@@ -165,6 +166,7 @@ pub(super) fn read_opencode_native_config(path: &Path) -> Option<ModelInfo> {
     let provider = config.pointer(&format!("/provider/{}", provider_id))?;
 
     Some(ModelInfo {
+        api_protocol: None,
         name: provider
             .pointer(&format!("/models/{}/name", model_id))
             .and_then(|v| v.as_str())

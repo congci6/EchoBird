@@ -67,6 +67,7 @@ fn migrate_legacy_proxy_config_from(codex_dir: &Path, relay_path: &Path) -> io::
         .filter(|value| !value.is_empty())
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "legacy model is missing"))?;
     let model_info = crate::services::tool_config_manager::ModelInfo {
+        api_protocol: None,
         name: relay
             .get("modelName")
             .and_then(|value| value.as_str())

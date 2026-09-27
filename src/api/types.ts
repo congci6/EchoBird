@@ -40,6 +40,9 @@ export interface ModelConfig {
   baseUrl: string;
   apiKey: string;
   anthropicUrl?: string;
+  /** Wire protocol the user picked for this model. Absent = let each tool use
+   *  the dialect it speaks natively. */
+  apiProtocol?: string;
   modelType?: 'CLOUD' | 'LOCAL' | 'TUNNEL' | 'DEMO';
   openaiTested?: boolean;
   anthropicTested?: boolean;

@@ -93,6 +93,7 @@ pub(super) fn read_vibe_trading() -> Option<ModelInfo> {
     let base_url = env_read(&content, "OPENAI_BASE_URL");
     let api_key = env_read(&content, "OPENAI_API_KEY");
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model.clone()),
         model: Some(model),
         base_url: if base_url.is_empty() {

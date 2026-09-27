@@ -113,6 +113,7 @@ pub(super) fn read_workbuddy(tool_id: &str) -> Option<ModelInfo> {
         .trim_end_matches('/')
         .to_string();
     Some(ModelInfo {
+        api_protocol: None,
         name: m.get("name").and_then(|v| v.as_str()).map(String::from),
         model: Some(model.to_string()),
         base_url: if base_url.is_empty() {

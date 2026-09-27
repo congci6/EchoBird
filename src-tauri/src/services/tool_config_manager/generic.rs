@@ -126,6 +126,7 @@ pub(super) fn read_generic_json(tool_id: &str) -> Option<ModelInfo> {
     model.as_ref()?;
 
     Some(ModelInfo {
+        api_protocol: None,
         name: None,
         model,
         base_url: read_field(&read_map.base_url),
