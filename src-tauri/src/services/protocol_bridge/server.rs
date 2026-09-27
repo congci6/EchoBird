@@ -136,13 +136,22 @@ async fn bridge(
         }
     };
 
-    // The bridge serves one model; a client that named its own is taken at its
-    // word, otherwise the configured model applies.
+    // The bridge serves exactly one model: the one EchoBird configured. A
+    // client is NOT trusted to name it. Codex and ChatGPT Desktop persist the
+    // last model they used in their own state
+    // (`composer-recent-model-configurations-v1` in `.codex-global-state.json`)
+    // and send that instead of the `model` written into `config.toml`. Taking
+    // a client at its word therefore puts a display label such as `gpt-5.5`
+    // on the wire, and a gateway that only knows the real id answers
+    // `503 no available channel for model gpt-5.5`. The deleted Codex proxy
+    // rewrote the id unconditionally for exactly this reason, and so does the
+    // bridge. The client's own string is kept only to echo back in the reply,
+    // so the client still sees the model it asked for.
     let mut request = request;
-    if request.model.trim().is_empty() {
+    let client_model = request.model.clone();
+    if !target.model.trim().is_empty() {
         request.model = target.model.clone();
     }
-    let client_model = request.model.clone();
 
     let upstream_body = protocol::encode_request(target.protocol, &request);
     let streaming = request.stream;

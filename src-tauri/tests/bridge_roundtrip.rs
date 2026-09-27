@@ -74,11 +74,15 @@ async fn codex_responses_request_reaches_a_chat_only_provider() {
     });
     let bridge = serve(build_router().unwrap()).await;
 
-    // Exactly the shape Codex sends.
+    // Exactly the shape Codex sends — including the model. ChatGPT Desktop
+    // persists the last model it used in its own state and sends that instead
+    // of the `model` in config.toml, so the display label arrives on the wire
+    // even though EchoBird configured the real id. The bridge must not take a
+    // client at its word; that label is what produced the 503.
     let response = reqwest::Client::new()
         .post(format!("http://{bridge}/v1/responses"))
         .json(&json!({
-            "model": "space-bunny-free",
+            "model": "gpt-5.5",
             "input": [{"role": "user", "content": [{"type": "input_text", "text": "ping"}]}],
             "stream": false
         }))
@@ -114,6 +118,10 @@ async fn codex_responses_request_reaches_a_chat_only_provider() {
     assert!(!models.iter().any(|m| m.contains("gpt-5.5")));
 
     assert_eq!(body["object"], "response", "answer is not Responses-shaped");
+    assert_eq!(
+        body["model"], "gpt-5.5",
+        "the client must still see the model it asked for"
+    );
     let text = body["output"][0]["content"][0]["text"]
         .as_str()
         .unwrap_or_default();
