@@ -404,6 +404,7 @@ pub fn get_models() -> Vec<ModelConfig> {
             base_url: format!("http://127.0.0.1:{}/v1", server_info.port),
             api_key: server_info.api_key.clone(),
             anthropic_url: Some(format!("http://127.0.0.1:{}/anthropic", server_info.port)),
+            api_protocol: None,
             model_type: Some(crate::models::model::ModelType::Local),
             openai_tested: None,
             anthropic_tested: None,
@@ -462,6 +463,17 @@ fn save_user_models(models: &[ModelConfig]) {
     }
 }
 
+/// Reduce a user-supplied protocol name to its canonical form.
+///
+/// An empty value means "no explicit choice" and clears the field, which is
+/// how a model returns to each tool using its native dialect. An unrecognised
+/// value is treated the same way rather than persisted, so a typo or a value
+/// from a newer build can never reach a tool config and silently break it.
+fn normalize_api_protocol(raw: Option<String>) -> Option<String> {
+    let raw = raw?;
+    crate::services::protocol::WireProtocol::parse(&raw).map(|p| p.as_str().to_string())
+}
+
 /// Add a new model
 #[derive(Debug, Default, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -472,6 +484,10 @@ pub struct AddModelInput {
     pub base_url: Option<String>,
     #[serde(default)]
     pub anthropic_url: Option<String>,
+    /// Wire protocol the user picked. `None` = let each tool use its native
+    /// dialect (the pre-protocol-selection behaviour).
+    #[serde(default)]
+    pub api_protocol: Option<String>,
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
@@ -494,6 +510,7 @@ pub fn add_model(input: AddModelInput) -> ModelConfig {
         base_url,
         api_key: input.api_key.unwrap_or_default(),
         anthropic_url: input.anthropic_url,
+        api_protocol: normalize_api_protocol(input.api_protocol),
         model_type: auto_type,
         openai_tested: None,
         anthropic_tested: None,
@@ -537,6 +554,10 @@ pub struct UpdateModelInput {
     pub base_url: Option<String>,
     #[serde(default)]
     pub anthropic_url: Option<String>,
+    /// Wire protocol choice. `Some("")` clears it back to native-dialect
+    /// behaviour.
+    #[serde(default)]
+    pub api_protocol: Option<String>,
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
@@ -565,6 +586,9 @@ pub fn update_model(internal_id: &str, updates: UpdateModelInput) -> Option<Mode
     }
     if let Some(url) = updates.anthropic_url {
         models[index].anthropic_url = if url.is_empty() { None } else { Some(url) };
+    }
+    if let Some(protocol) = updates.api_protocol {
+        models[index].api_protocol = normalize_api_protocol(Some(protocol));
     }
     if let Some(key) = updates.api_key {
         models[index].api_key = key;
@@ -914,6 +938,7 @@ mod tests {
             base_url: String::new(),
             api_key: String::new(),
             anthropic_url: None,
+            api_protocol: None,
             model_type: None,
             openai_tested: None,
             anthropic_tested: None,

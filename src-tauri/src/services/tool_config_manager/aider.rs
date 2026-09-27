@@ -68,6 +68,7 @@ pub(super) fn read_aider() -> Option<ModelInfo> {
     };
     let bu = yaml_read(&content, "openai-api-base");
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model.clone()),
         model: Some(model),
         base_url: if bu.is_empty() { None } else { Some(bu) },

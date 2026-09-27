@@ -7,6 +7,7 @@ use super::{
 };
 use crate::services::codex_accounts;
 use crate::services::codex_catalog;
+use crate::services::protocol::WireProtocol;
 use std::fs;
 use std::path::Path;
 
@@ -82,6 +83,7 @@ fn codex_web_search_mode(base_url: &str) -> &'static str {
 fn write_codex_canonical_fields(
     content: &str,
     codex_base_url: &str,
+    upstream_base_url: &str,
     model: &str,
     context_window: u64,
 ) -> String {
@@ -120,14 +122,14 @@ fn write_codex_canonical_fields(
         "model_auto_compact_token_limit",
         &codex_compact_limit_for(context_window).to_string(),
     );
-    c = toml_write_top(&c, "web_search", codex_web_search_mode(codex_base_url));
+    c = toml_write_top(&c, "web_search", codex_web_search_mode(upstream_base_url));
 
     // MiMo's official Codex configuration requires this top-level capability
     // flag for model_reasoning_effort to take effect. Remove the pair first so
     // switching away from MiMo cannot leak its model-specific settings.
     c = toml_delete_top(&c, "model_supports_reasoning_summaries");
     c = toml_delete_top(&c, "model_reasoning_summary");
-    if codex_catalog::url_matches_domain(codex_base_url, "xiaomimimo.com") {
+    if codex_catalog::url_matches_domain(upstream_base_url, "xiaomimimo.com") {
         c = toml_write_top_raw(&c, "model_supports_reasoning_summaries", "true");
         c = toml_write_top(&c, "model_reasoning_summary", "none");
     }
@@ -159,6 +161,89 @@ fn codex_catalog_referenced(content: &str, our_path: &str) -> bool {
     !referenced.is_empty() && (referenced == our_path || referenced == "~/.codex/models.json")
 }
 
+/// How Codex should reach the selected model.
+enum CodexRoute {
+    /// The provider already serves the Responses API, so its URL is written
+    /// straight into `config.toml` and no proxy is involved.
+    Direct { base_url: String },
+    /// The provider speaks another dialect. EchoBird's bridge accepts the
+    /// Responses request Codex sends, translates it to what the provider
+    /// understands, and translates the answer back.
+    Bridge {
+        target: crate::services::protocol_bridge::BridgeTarget,
+    },
+}
+
+/// The dialect a provider serves natively, and the base URL that serves it.
+///
+/// `selected` is the protocol the user chose in the model centre. When the
+/// model has a dedicated endpoint for that dialect it is used directly;
+/// otherwise the OpenAI-compatible base is treated as Chat Completions and the
+/// bridge does the translation.
+fn native_endpoint(
+    model_info: &ModelInfo,
+    base_url: &str,
+    selected: WireProtocol,
+) -> (WireProtocol, String) {
+    match selected {
+        WireProtocol::AnthropicMessages => {
+            match model_info
+                .anthropic_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|url| !url.is_empty())
+            {
+                Some(url) => (WireProtocol::AnthropicMessages, url.to_string()),
+                // No Anthropic endpoint configured: translate from the
+                // OpenAI-compatible one rather than failing the apply.
+                None => (WireProtocol::OpenaiChat, base_url.to_string()),
+            }
+        }
+        // Gemini addresses a model in the path and has no separate URL field,
+        // so the OpenAI-compatible base carries the endpoint.
+        WireProtocol::GeminiGenerateContent => {
+            (WireProtocol::GeminiGenerateContent, base_url.to_string())
+        }
+        WireProtocol::OpenaiChat | WireProtocol::OpenaiResponses => {
+            (selected, base_url.to_string())
+        }
+    }
+}
+
+/// Decide how Codex reaches this model, starting the bridge when needed.
+///
+/// Codex only ever speaks the Responses API. Previously that made Responses a
+/// hard requirement: a vendor exposing only Chat Completions simply could not
+/// be used with Codex. Routing through the bridge removes that constraint —
+/// the user picks the protocol, and EchoBird converts.
+fn codex_route(
+    model_info: &ModelInfo,
+    base_url: &str,
+    api_key: &str,
+    model_id: &str,
+) -> CodexRoute {
+    let selected = model_info
+        .api_protocol
+        .as_deref()
+        .and_then(WireProtocol::parse)
+        // A config written before protocol selection existed means "Responses",
+        // which preserves the direct-connect behaviour it was written for.
+        .unwrap_or(WireProtocol::OpenaiResponses);
+    let (native, native_base) = native_endpoint(model_info, base_url, selected);
+    if native == WireProtocol::OpenaiResponses {
+        return CodexRoute::Direct {
+            base_url: native_base,
+        };
+    }
+    CodexRoute::Bridge {
+        target: crate::services::protocol_bridge::BridgeTarget {
+            base_url: native_base,
+            api_key: api_key.to_string(),
+            model: model_id.to_string(),
+            protocol: native,
+        },
+    }
+}
 pub(crate) fn apply_codex(tool_id: &str, model_info: &ModelInfo) -> ApplyResult {
     let codex_dir = codex_accounts::codex_home().unwrap_or_default();
     let state_dir = echobird_dir();
@@ -261,9 +346,26 @@ pub(crate) fn apply_codex_at(
     // canonical shape end-to-end, not just `base_url`. Codex's own
     // runtime state (`[projects.*]` trust, `[tui.*]` NUX, `[plugins.*]`)
     // and any unrelated user-edited top-level keys stay untouched.
+    // Codex only speaks the Responses API, so a provider serving another
+    // dialect has to be reached through EchoBird's bridge, which translates in
+    // both directions. Everything below still keys off the REAL upstream URL so
+    // vendor detection (catalog, web search) keeps working unchanged.
+    let codex_base_url = match codex_route(model_info, &base_url, &api_key, model_id) {
+        CodexRoute::Direct { base_url } => base_url,
+        CodexRoute::Bridge { target } => {
+            crate::services::protocol_bridge::ensure_serving(target);
+            format!("{}/v1", crate::services::protocol_bridge::base_url())
+        }
+    };
+
     let existing = fs::read_to_string(&config_path).unwrap_or_default();
-    let mut new_content =
-        write_codex_canonical_fields(&existing, &base_url, model_id, context_window);
+    let mut new_content = write_codex_canonical_fields(
+        &existing,
+        &codex_base_url,
+        &base_url,
+        model_id,
+        context_window,
+    );
 
     // Model catalog — direct third-party providers (DeepSeek / MiniMax / MiMo)
     // need `model_catalog_json` so Codex knows the real model's context window,
@@ -406,6 +508,7 @@ pub(super) fn read_codex() -> Option<ModelInfo> {
     });
 
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model.clone()),
         model: Some(model),
         base_url,
@@ -534,6 +637,7 @@ mod tests {
         let out = write_codex_canonical_fields(
             stale,
             "https://ark.cn-beijing.volces.com/api/coding/v1",
+            "https://ark.cn-beijing.volces.com/api/coding/v1",
             "glm-5.2",
             DEFAULT_CODEX_CONTEXT_WINDOW,
         );
@@ -555,6 +659,7 @@ mod tests {
         let out = write_codex_canonical_fields(
             stale,
             "https://provider.example/v1",
+            "https://provider.example/v1",
             "provider-model",
             DEFAULT_CODEX_CONTEXT_WINDOW,
         );
@@ -572,6 +677,7 @@ mod tests {
                      name = \"OpenAI\"\n";
         let out = write_codex_canonical_fields(
             stale,
+            "https://provider.example/v1",
             "https://provider.example/v1",
             "provider-model",
             DEFAULT_CODEX_CONTEXT_WINDOW,
@@ -631,6 +737,7 @@ mod tests {
         let out = write_codex_canonical_fields(
             stale,
             "https://provider.example/v1",
+            "https://provider.example/v1",
             "provider-model",
             DEFAULT_CODEX_CONTEXT_WINDOW,
         );
@@ -647,6 +754,7 @@ mod tests {
         // 1,000,000 / 900,000 defaults.
         let out = write_codex_canonical_fields(
             "model = \"gpt-5.5\"\n[model_providers.OpenAI]\n",
+            "http://127.0.0.1:53682/v1",
             "http://127.0.0.1:53682/v1",
             "gpt-5.5",
             204_800,
@@ -677,6 +785,7 @@ mod tests {
             let out = write_codex_canonical_fields(
                 "",
                 base_url,
+                base_url,
                 "provider-model",
                 DEFAULT_CODEX_CONTEXT_WINDOW,
             );
@@ -689,6 +798,7 @@ mod tests {
         let mimo = write_codex_canonical_fields(
             "",
             "https://api.xiaomimimo.com/v1",
+            "https://api.xiaomimimo.com/v1",
             "mimo-v2.5-pro",
             DEFAULT_CODEX_CONTEXT_WINDOW,
         );
@@ -697,6 +807,7 @@ mod tests {
 
         let other = write_codex_canonical_fields(
             &mimo,
+            "https://provider.example/v1",
             "https://provider.example/v1",
             "provider-model",
             DEFAULT_CODEX_CONTEXT_WINDOW,

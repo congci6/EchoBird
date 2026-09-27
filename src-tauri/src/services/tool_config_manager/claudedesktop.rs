@@ -377,6 +377,7 @@ pub(super) fn read_claudedesktop() -> Option<ModelInfo> {
         .map(String::from);
 
     Some(ModelInfo {
+        api_protocol: None,
         name: None,
         model: None,
         base_url: None,

@@ -278,6 +278,7 @@ fn read_zcode_personal_config(path: &std::path::Path) -> Option<ModelInfo> {
         .map(String::from);
 
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model_id.to_string()),
         model: Some(model_id.to_string()),
         anthropic_url: if protocol == "anthropic" {
@@ -314,6 +315,7 @@ pub(super) fn read_zcode() -> Option<ModelInfo> {
     };
 
     Some(ModelInfo {
+        api_protocol: None,
         name: provider
             .pointer(&format!("/models/{}/name", model_id))
             .and_then(|v| v.as_str())

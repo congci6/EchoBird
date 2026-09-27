@@ -134,6 +134,7 @@ pub(super) fn read_qwen_code() -> Option<ModelInfo> {
         .map(|s| s.to_string());
 
     Some(ModelInfo {
+        api_protocol: None,
         name: entry
             .get("name")
             .and_then(|v| v.as_str())

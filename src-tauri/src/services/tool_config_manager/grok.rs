@@ -214,6 +214,7 @@ pub(super) fn read_grok() -> Option<ModelInfo> {
         .map(String::from);
 
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model.clone()),
         model: Some(model),
         base_url,

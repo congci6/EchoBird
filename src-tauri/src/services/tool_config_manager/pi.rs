@@ -139,6 +139,7 @@ pub(super) fn read_pi() -> Option<ModelInfo> {
     };
 
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(model_id.clone()),
         model: Some(model_id),
         base_url: base,

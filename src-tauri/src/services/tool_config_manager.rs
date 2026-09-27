@@ -73,6 +73,13 @@ pub struct ModelInfo {
     pub anthropic_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<String>,
+    /// Which wire protocol the user wants this model used through, when it
+    /// differs from what the provider serves natively. EchoBird then runs the
+    /// protocol bridge to translate. Absent means "use the provider directly",
+    /// which is the behaviour every config written before protocol selection
+    /// existed relies on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_model: Option<String>,
     /// Claude Desktop / Claude Code only. Connect directly to the selected

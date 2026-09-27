@@ -192,6 +192,7 @@ pub(super) fn read_openclaw() -> Option<ModelInfo> {
         .map(|s| s.to_string());
 
     Some(ModelInfo {
+        api_protocol: None,
         name: model_name,
         model: Some(model_id.to_string()),
         base_url,

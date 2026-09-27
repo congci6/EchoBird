@@ -24,6 +24,8 @@ pub mod model_directory;
 pub mod model_manager;
 pub mod parasite;
 pub mod process_manager;
+pub mod protocol;
+pub mod protocol_bridge;
 pub mod self_update;
 pub mod smart_router;
 pub mod tool_config_manager;

@@ -311,6 +311,7 @@ fn read_at(home: &Path) -> Option<ModelInfo> {
     };
 
     Some(ModelInfo {
+        api_protocol: None,
         name: Some(name),
         model: Some(model_id.to_string()),
         base_url,

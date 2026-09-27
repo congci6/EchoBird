@@ -298,6 +298,7 @@ pub(super) fn read_claudecode() -> Option<ModelInfo> {
         .map(String::from);
 
     Some(ModelInfo {
+        api_protocol: None,
         name,
         model,
         base_url: None,
@@ -402,6 +403,7 @@ mod tests {
             api_key: Some("test-key".to_string()),
             anthropic_url: None,
             protocol: Some("anthropic".to_string()),
+            api_protocol: None,
             display_model: None,
             relay_mode,
             one_m_context: None,

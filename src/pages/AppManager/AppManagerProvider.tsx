@@ -501,6 +501,11 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
         apiKey: model.apiKey,
         model: model.modelId || '',
         protocol: selectedProtocol,
+        // The user's explicit wire-protocol pick, if the model has one. The
+        // backend routes through its protocol bridge when this differs from
+        // what the tool speaks natively, which is what lets a Responses-only
+        // CLI use a Chat-Completions-only provider (and vice versa).
+        ...(model.apiProtocol ? { apiProtocol: model.apiProtocol } : {}),
         ...(isRelayCapableApp ? { relayMode: effectiveRelay } : {}),
         ...(isClaudeApp ? { oneMContext: effective1m } : {}),
       });

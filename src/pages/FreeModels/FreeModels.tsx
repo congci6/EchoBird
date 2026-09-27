@@ -656,6 +656,7 @@ export function FreeModelsMain() {
         anthropicUrl: model.anthropicUrl || '',
         apiKey: model.apiKey,
         modelId: model.modelId || '',
+        apiProtocol: model.apiProtocol || '',
       });
       setKeyDestroyed(keyDestroyed);
       setShowApiKey(false);
@@ -1159,6 +1160,7 @@ export function FreeModelsPanel() {
         apiKey: '',
         modelId: modelIds[0] ?? '',
         modelIdOptions: modelIds,
+        apiProtocol: '',
       });
       setEditingModelId(null);
       setModelModalDestination('freeRouter');
@@ -1168,7 +1170,14 @@ export function FreeModelsPanel() {
   );
 
   const openCustomModel = () => {
-    setNewModelForm({ name: '', baseUrl: '', anthropicUrl: '', apiKey: '', modelId: '' });
+    setNewModelForm({
+      name: '',
+      baseUrl: '',
+      anthropicUrl: '',
+      apiKey: '',
+      modelId: '',
+      apiProtocol: '',
+    });
     setEditingModelId(null);
     setKeyDestroyed(false);
     setShowApiKey(false);
