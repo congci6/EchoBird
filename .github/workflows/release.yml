@@ -56,9 +56,18 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows: MSI only, and deliberately so. The NSIS installer fails
+          # on `makensis` with
+          #   !insertmacro: macro named "RestartManager_StartSession" not found!
+          # because tauri 2's installer.nsi calls a macro that the
+          # nsis_tauri_utils.dll it downloads alongside NSIS no longer exports.
+          # MSI is built from the same echobird.exe by WiX and succeeds, and it
+          # is the format Windows itself offers in Settings > Apps, so we ship
+          # that rather than losing the whole Windows job to a packaging
+          # mismatch. Re-test `--bundles nsis` before adding it back.
           - platform: 'windows-latest'
             rust-target: 'x86_64-pc-windows-msvc'
-            args: ''
+            args: '--bundles msi'
 
           # macOS: native build per architecture. Rosetta 2 only runs the
           # OTHER way (Intel binaries on ARM Macs) — Intel Macs cannot
