@@ -263,6 +263,7 @@ fn codex_route(
         api_key: api_key.to_string(),
         model: model_id.to_string(),
         protocol: native,
+        auto_degrade: false,
     }
 }
 pub(crate) fn apply_codex(tool_id: &str, model_info: &ModelInfo) -> ApplyResult {
@@ -539,6 +540,7 @@ pub(super) fn read_codex() -> Option<ModelInfo> {
         relay_mode: None,
         one_m_context: None,
         responses_fallback: None,
+        auto_degrade_protocols: None,
     })
 }
 
@@ -856,6 +858,7 @@ mod tests {
             relay_mode: None,
             one_m_context: None,
             responses_fallback: None,
+            auto_degrade_protocols: None,
         }
     }
 

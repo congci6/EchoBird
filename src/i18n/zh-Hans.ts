@@ -195,6 +195,15 @@ const zhHans: Partial<Translations> = {
   'model.responsesFallback': '供应商不支持 Responses',
   'model.responsesFallbackHint':
     '当供应商对 /v1/responses 返回「not implemented」时，自动转换为 Chat Completions。',
+  'model.autoDegradeProtocols': '报错时自动降级',
+  'model.autoDegradeProtocolsHint':
+    '若供应商返回“未实现”，桥接会自动改用 Chat Completions 重试一次，并在本次运行内记住。超时、普通服务端错误不会触发降级。',
+  'model.probeProtocols': '测试支持的协议',
+  'model.probeProtocolsRunning': '正在测试协议…',
+  'model.probeOutcome.available': '可用',
+  'model.probeOutcome.unsupported': '不支持',
+  'model.probeOutcome.auth': '密钥被拒',
+  'model.probeOutcome.unknown': '无响应',
   'model.invalidOpenaiUrl': '请输入有效的 OpenAI 地址。',
   'model.editConfig': '编辑模型配置',
   'model.deleteTitle': '删除模型',

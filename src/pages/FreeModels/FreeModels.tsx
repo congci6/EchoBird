@@ -658,6 +658,7 @@ export function FreeModelsMain() {
         modelId: model.modelId || '',
         apiProtocol: model.apiProtocol || '',
         responsesFallback: model.responsesFallback ?? false,
+        autoDegradeProtocols: model.autoDegradeProtocols ?? false,
       });
       setKeyDestroyed(keyDestroyed);
       setShowApiKey(false);
@@ -1163,6 +1164,7 @@ export function FreeModelsPanel() {
         modelIdOptions: modelIds,
         apiProtocol: '',
         responsesFallback: false,
+        autoDegradeProtocols: false,
       });
       setEditingModelId(null);
       setModelModalDestination('freeRouter');
@@ -1180,6 +1182,7 @@ export function FreeModelsPanel() {
       modelId: '',
       apiProtocol: '',
       responsesFallback: false,
+      autoDegradeProtocols: false,
     });
     setEditingModelId(null);
     setKeyDestroyed(false);

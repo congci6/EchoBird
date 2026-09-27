@@ -272,6 +272,7 @@ fn read_kimi_at(config_path: &std::path::Path) -> Option<ModelInfo> {
         relay_mode: None,
         one_m_context: None,
         responses_fallback: None,
+        auto_degrade_protocols: None,
     })
 }
 

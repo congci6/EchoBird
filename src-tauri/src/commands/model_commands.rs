@@ -2,6 +2,7 @@
 
 use crate::models::model::{ModelConfig, PingResult, TestResult};
 use crate::services::model_manager::{self, AddModelInput, UpdateModelInput};
+use crate::services::protocol_probe;
 use crate::services::usage_providers::{self, UsageResult};
 
 /// Get all models (user + built-in + local)
@@ -58,6 +59,26 @@ pub async fn test_model(
     protocol: String,
 ) -> Result<TestResult, String> {
     Ok(model_manager::test_model(&internal_id, &prompt, &protocol).await)
+}
+
+/// Ask a provider which of the four dialects it actually serves.
+///
+/// Takes the raw form fields rather than an `internal_id`, because the whole
+/// point is to run it BEFORE the model is saved: a user pasting a base URL and
+/// a key has no other way to find out that their gateway answers `not
+/// implemented` on `/v1/responses`.
+///
+/// This calls the provider. It is never automatic, only a button press.
+#[tauri::command]
+pub async fn probe_model_protocols(
+    base_url: String,
+    api_key: String,
+    model: String,
+) -> Result<Vec<protocol_probe::DialectReport>, String> {
+    if base_url.trim().is_empty() {
+        return Err("Base URL is required".to_string());
+    }
+    Ok(protocol_probe::probe_all(&base_url, &api_key, &model).await)
 }
 
 /// Ping model server

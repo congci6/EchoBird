@@ -108,5 +108,6 @@ pub(super) fn read_echobird_relay(tool_id: &str) -> Option<ModelInfo> {
         relay_mode: None,
         one_m_context: None,
         responses_fallback: None,
+        auto_degrade_protocols: None,
     })
 }

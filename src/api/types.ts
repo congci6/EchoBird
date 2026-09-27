@@ -46,6 +46,7 @@ export interface ModelConfig {
   /** Degrade a Responses protocol choice to Chat Completions, for providers
    *  that answer `not implemented` on /v1/responses. */
   responsesFallback?: boolean;
+  autoDegradeProtocols?: boolean;
   modelType?: 'CLOUD' | 'LOCAL' | 'TUNNEL' | 'DEMO';
   openaiTested?: boolean;
   anthropicTested?: boolean;
@@ -125,6 +126,7 @@ export interface ApplyModelInput {
    * `apiProtocol` is Responses; the mapping ignores it for every other
    * dialect, so it is safe to send unconditionally. */
   responsesFallback?: boolean;
+  autoDegradeProtocols?: boolean;
   /** Claude Desktop / Claude Code only. Connect directly to the selected
    * Anthropic-compatible relay instead of EchoBird's model-id router. */
   relayMode?: boolean;

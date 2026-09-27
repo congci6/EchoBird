@@ -137,6 +137,16 @@ async fn bridge(
     if client_protocol == WireProtocol::OpenaiResponses
         && target.protocol == WireProtocol::OpenaiResponses
     {
+        // A provider already known not to serve Responses is not re-asked: that
+        // would spend a doomed round trip on every request for the rest of the
+        // session, which is the whole reason the verdict is remembered. The
+        // one-shot retry in `forward_once` is what teaches it.
+        if target.auto_degrade && super::refuses_responses(&target.base_url) {
+            let mut degraded = target.clone();
+            degraded.protocol = WireProtocol::OpenaiChat;
+            let hint = model_hint(&body);
+            return forward_once(state, &degraded, client_protocol, body, &hint).await;
+        }
         return responses_passthrough(state, target, body).await;
     }
 
@@ -164,9 +174,47 @@ async fn bridge(
         request.model = target.model.clone();
     }
 
+    forward_once(state, &target, client_protocol, body, &client_model).await
+}
+
+/// The model id a client asked for, read from the body in whatever dialect it
+/// used. Only used to echo back in the reply, so a miss is harmless.
+fn model_hint(body: &Value) -> String {
+    body.get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Send one request upstream in `target.protocol` and render the reply back in
+/// `client_protocol`, degrading once if the provider says it does not serve
+/// that dialect.
+///
+/// Split out of [`bridge`] so the degraded retry re-sends without re-parsing
+/// the client body: `body` is the client's original dialect, and the retry has
+/// to translate it again from that, not from a half-converted form.
+#[allow(clippy::only_used_in_recursion)]
+async fn forward_once(
+    state: BridgeState,
+    target: &BridgeTarget,
+    client_protocol: WireProtocol,
+    body: Value,
+    client_model: &str,
+) -> Response {
+    let request = match protocol::parse_request(client_protocol, &body, None) {
+        Ok(request) => request,
+        Err(message) => {
+            return protocol_error(client_protocol, StatusCode::BAD_REQUEST, &message);
+        }
+    };
+    let mut request = request;
+    if !target.model.trim().is_empty() {
+        request.model = target.model.clone();
+    }
+
     let upstream_body = protocol::encode_request(target.protocol, &request);
     let streaming = request.stream;
-    let url = upstream_url(&target, streaming);
+    let url = upstream_url(target, streaming);
 
     let mut outgoing = state
         .http_client
@@ -189,11 +237,50 @@ async fn bridge(
     let status = response.status();
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
+
+        // A provider that says the endpoint is unimplemented has told us a
+        // fixed fact about itself, and the user's request is answerable through
+        // a dialect it does serve. Degrade, remember, and answer — rather than
+        // handing back a 500 the user has no way to act on. A transient failure
+        // is forwarded verbatim instead, so an outage is never disguised as a
+        // working route.
+        if let Some(fallback) = target
+            .auto_degrade
+            .then(|| super::classify_upstream_failure(target.protocol, status, &text))
+            .flatten()
+        {
+            super::remember_no_responses(&target.base_url);
+            log::warn!(
+                "[ProtocolBridge] {} does not serve {:?} ({status}) — degrading to {fallback:?}",
+                target.base_url,
+                target.protocol
+            );
+            let mut degraded = target.clone();
+            degraded.protocol = fallback;
+            // Boxed: the retry recurses into this same function, and an async
+            // fn that calls itself needs its future heap-allocated. One level
+            // of retry is the whole design — the degraded dialect has no
+            // fallback of its own, so this cannot loop.
+            return Box::pin(forward_once(
+                state,
+                &degraded,
+                client_protocol,
+                body,
+                client_model,
+            ))
+            .await;
+        }
+
         return forward_error(client_protocol, status, &text);
     }
 
     if streaming {
-        return stream_through(response, target.protocol, client_protocol, client_model);
+        return stream_through(
+            response,
+            target.protocol,
+            client_protocol,
+            client_model.to_string(),
+        );
     }
 
     let payload: Value = match response.json().await {
@@ -207,7 +294,7 @@ async fn bridge(
         }
     };
     let canonical = protocol::parse_response(target.protocol, &payload);
-    let rendered = protocol::encode_response(client_protocol, &canonical, &client_model);
+    let rendered = protocol::encode_response(client_protocol, &canonical, client_model);
     (StatusCode::OK, axum::Json(rendered)).into_response()
 }
 
@@ -315,6 +402,10 @@ async fn responses_passthrough(state: BridgeState, target: BridgeTarget, body: V
         .map(str::to_string);
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
+    // Read before the body is consumed by the outgoing request: the degraded
+    // retry needs the client's own model id to echo back.
+    let asked_model = model_hint(&body);
+    let outgoing_body = body.clone();
     let mut outgoing = body;
     if !target.model.trim().is_empty() && outgoing.is_object() {
         outgoing["model"] = Value::String(target.model.clone());
@@ -345,6 +436,34 @@ async fn responses_passthrough(state: BridgeState, target: BridgeTarget, body: V
     let status = response.status();
     if !status.is_success() {
         let text = response.text().await.unwrap_or_default();
+
+        // The verbatim path is the one that most needs the fallback: a provider
+        // that does not serve Responses is discovered HERE, on the very first
+        // real request, and this branch is the Responses-on-both-sides fast
+        // path. Without the check the 500 is forwarded and the user has no way
+        // to act on it.
+        if let Some(fallback) = target
+            .auto_degrade
+            .then(|| super::classify_upstream_failure(target.protocol, status, &text))
+            .flatten()
+        {
+            super::remember_no_responses(&target.base_url);
+            log::warn!(
+                "[ProtocolBridge] {} does not serve Responses ({status}) — degrading to {fallback:?}",
+                target.base_url
+            );
+            let mut degraded = target.clone();
+            degraded.protocol = fallback;
+            return forward_once(
+                state,
+                &degraded,
+                WireProtocol::OpenaiResponses,
+                outgoing_body,
+                &asked_model,
+            )
+            .await;
+        }
+
         return forward_error(WireProtocol::OpenaiResponses, status, &text);
     }
 
@@ -687,6 +806,7 @@ mod tests {
             api_key: "k".to_string(),
             model: "m".to_string(),
             protocol,
+            auto_degrade: false,
         }
     }
 

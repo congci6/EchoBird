@@ -171,6 +171,7 @@ async fn a_gemini_client_reaches_a_chat_only_provider_and_answers_in_gemini() {
         api_key: "test-key".to_string(),
         model: "upstream-model".to_string(),
         protocol: WireProtocol::OpenaiChat,
+        auto_degrade: true,
     });
     let bridge = serve_bridge().await;
 
@@ -255,6 +256,7 @@ async fn a_chat_client_reaches_a_messages_only_provider_and_answers_in_chat() {
         api_key: "test-key".to_string(),
         model: "upstream-model".to_string(),
         protocol: WireProtocol::AnthropicMessages,
+        auto_degrade: true,
     });
     let bridge = serve_bridge().await;
 

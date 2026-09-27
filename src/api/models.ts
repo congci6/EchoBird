@@ -15,6 +15,7 @@ export async function addModel(input: {
   scope?: 'modelCenter' | 'smartRouter';
   apiProtocol?: string;
   responsesFallback?: boolean;
+  autoDegradeProtocols?: boolean;
 }): Promise<ModelConfig> {
   const result = await invoke<ModelConfig>('add_model', { input });
   window.dispatchEvent(new Event('models-changed'));
@@ -37,6 +38,7 @@ export async function updateModel(
     modelId?: string;
     apiProtocol?: string;
     responsesFallback?: boolean;
+    autoDegradeProtocols?: boolean;
   }
 ): Promise<ModelConfig | null> {
   const result = await invoke<ModelConfig | null>('update_model', { internalId, updates });
@@ -50,6 +52,15 @@ export async function testModel(
   protocol: string = 'openai'
 ): Promise<ModelTestResult> {
   return invoke('test_model', { internalId, prompt, protocol });
+}
+
+/** Ask the provider which of the four dialects it serves.
+ *
+ *  Takes the raw form fields, not an `internalId`, because the point is to run
+ *  it before the model is saved. Costs tokens, so the caller must only invoke
+ *  it from an explicit button. */
+export function probeModelProtocols(input: { baseUrl: string; apiKey: string; model: string }) {
+  return invoke('probe_model_protocols', input);
 }
 
 /** Persist a user-defined model display order (full visible list of

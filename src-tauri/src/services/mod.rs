@@ -26,6 +26,7 @@ pub mod parasite;
 pub mod process_manager;
 pub mod protocol;
 pub mod protocol_bridge;
+pub mod protocol_probe;
 pub mod self_update;
 pub mod smart_router;
 pub mod tool_config_manager;

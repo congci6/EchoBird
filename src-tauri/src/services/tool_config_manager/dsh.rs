@@ -322,6 +322,7 @@ fn read_at(home: &Path) -> Option<ModelInfo> {
         relay_mode: None,
         one_m_context: None,
         responses_fallback: None,
+        auto_degrade_protocols: None,
     })
 }
 
