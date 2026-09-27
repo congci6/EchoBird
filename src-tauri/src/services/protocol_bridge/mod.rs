@@ -17,6 +17,56 @@ mod server;
 
 pub use server::{build_router, BridgeState};
 
+/// Decide whether an upstream failure is a verdict about the provider's
+/// dialects, and if so which dialect to fall back to.
+///
+/// The distinction is the whole point. A provider that answers `not
+/// implemented` to `/v1/responses` is stating a fixed fact about itself, and
+/// the fix is to degrade the route. A `503`, a timeout or a `500` with no such
+/// wording is a fault this time, and the same provider may well serve that
+/// endpoint on the next call — degrading there would swap the user's protocol
+/// out from under them to paper over an outage.
+///
+/// So the bar is deliberately narrow: a 5xx whose body says the endpoint is
+/// unimplemented or unsupported, or a bare `501`. Anything else, including any
+/// 4xx however it is worded, is left alone. A 400 that happens to contain
+/// "unsupported" is the provider complaining about the request we built, which
+/// may be our own bug, and rewriting the route would hide it.
+///
+/// Returns the dialect to degrade to, or `None` to forward the error as-is.
+pub fn classify_upstream_failure(
+    protocol: WireProtocol,
+    status: axum::http::StatusCode,
+    body: &str,
+) -> Option<WireProtocol> {
+    // Only Responses has a fallback. Every other dialect already resolves to
+    // something the provider serves, or the failure is about the request.
+    if protocol != WireProtocol::OpenaiResponses {
+        return None;
+    }
+    if status == axum::http::StatusCode::NOT_IMPLEMENTED {
+        return Some(WireProtocol::OpenaiChat);
+    }
+    if !status.is_server_error() {
+        return None;
+    }
+    let lowered = body.to_lowercase();
+    // "does not support" is its own phrasing and common in per-model messages
+    // ("this model does not support the responses api"), which read nothing
+    // like an endpoint-level complaint.
+    const VERDICTS: [&str; 5] = [
+        "not implemented",
+        "notimplemented",
+        "unsupported",
+        "not supported",
+        "does not support",
+    ];
+    VERDICTS
+        .iter()
+        .any(|verdict| lowered.contains(verdict))
+        .then_some(WireProtocol::OpenaiChat)
+}
+
 use crate::services::protocol::WireProtocol;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
@@ -40,6 +90,67 @@ pub struct BridgeTarget {
     pub model: String,
     /// The protocol the provider natively speaks.
     pub protocol: WireProtocol,
+    /// Whether the bridge may learn, from an explicit refusal, that this
+    /// provider does not serve a dialect and route around it by itself.
+    ///
+    /// Off unless the user asks for it. When on, it reacts only to a refusal
+    /// that names the missing endpoint — never to a timeout, a rate limit or an
+    /// opaque 500, because degrading on those would change the dialect under
+    /// the user during a transient failure and the request would then fail in
+    /// a different dialect for an unrelated reason.
+    pub auto_degrade: bool,
+}
+
+/// Base URLs whose Responses endpoint has answered "not implemented".
+///
+/// Keyed by base URL because the fact belongs to the provider, not to the
+/// model or the tool: the same gateway that refuses `/v1/responses` will
+/// refuse it for every model behind it. In-process only — a provider that
+/// starts serving Responses after an upgrade is picked up on the next
+/// restart rather than being pinned to the degraded route forever, and
+/// nothing is written to the user's config without them asking.
+static NO_RESPONSES: OnceLock<RwLock<std::collections::HashSet<String>>> = OnceLock::new();
+
+fn no_responses_cell() -> &'static RwLock<std::collections::HashSet<String>> {
+    NO_RESPONSES.get_or_init(|| RwLock::new(std::collections::HashSet::new()))
+}
+
+/// Whether `base_url` has been seen to refuse the Responses endpoint.
+pub fn refuses_responses(base_url: &str) -> bool {
+    no_responses_cell()
+        .read()
+        .map(|set| set.contains(&normalize_base(base_url)))
+        .unwrap_or(false)
+}
+
+/// Record that `base_url` does not serve `/v1/responses`.
+pub fn remember_no_responses(base_url: &str) {
+    if let Ok(mut set) = no_responses_cell().write() {
+        set.insert(normalize_base(base_url));
+    }
+}
+
+/// Forget everything learned, so the next request re-tests.
+///
+/// Exposed for the "re-test protocols" button: a user who has just been told
+/// their provider does not serve Responses should be able to make the app
+/// believe that again without a restart.
+pub fn forget_learned_protocols() {
+    if let Ok(mut set) = no_responses_cell().write() {
+        set.clear();
+    }
+}
+
+/// Compare base URLs for the learned set, so a trailing slash or a
+/// `/v1` suffix from one call site and not another does not produce two
+/// entries for one provider.
+fn normalize_base(base_url: &str) -> String {
+    base_url
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches("/v1")
+        .trim_end_matches('/')
+        .to_string()
 }
 
 static TARGET: OnceLock<RwLock<Option<BridgeTarget>>> = OnceLock::new();
@@ -144,6 +255,7 @@ mod tests {
             api_key: "k".to_string(),
             model: "m".to_string(),
             protocol: WireProtocol::OpenaiChat,
+            auto_degrade: false,
         }
     }
 

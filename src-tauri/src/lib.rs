@@ -983,6 +983,7 @@ pub fn run() {
             model_commands::reorder_models,
             model_commands::test_model,
             model_commands::ping_model,
+            model_commands::probe_model_protocols,
             model_commands::is_key_destroyed,
             model_commands::query_model_usage,
             model_commands::save_volc_aksk,

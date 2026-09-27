@@ -107,6 +107,7 @@ fn migrate_legacy_proxy_config_from(codex_dir: &Path, relay_path: &Path) -> io::
         relay_mode: None,
         one_m_context: None,
         responses_fallback: None,
+        auto_degrade_protocols: None,
     };
     let state_dir = relay_path.parent().unwrap_or_else(|| Path::new(""));
     let result = crate::services::tool_config_manager::apply_codex_at(

@@ -224,6 +224,15 @@ const ja: Partial<Translations> = {
   'model.responsesFallback': 'プロバイダーが Responses に非対応',
   'model.responsesFallbackHint':
     '/v1/responses が「not implemented」を返す場合、Chat Completions に変換します。',
+  'model.autoDegradeProtocols': 'エラー時に自動フォールバック',
+  'model.autoDegradeProtocolsHint':
+    'プロバイダが「未実装」と返答した場合、Chat Completions で一度だけ再試行し、このセッション内で記憶します。タイムアウトや一般的なサーバーエラーでは発動しません。',
+  'model.probeProtocols': '対応プロトコルをテスト',
+  'model.probeProtocolsRunning': 'プロトコルをテスト中…',
+  'model.probeOutcome.available': '利用可能',
+  'model.probeOutcome.unsupported': '非対応',
+  'model.probeOutcome.auth': 'キー拒否',
+  'model.probeOutcome.unknown': '応答なし',
   'model.invalidOpenaiUrl': '有効な OpenAI URL を入力してください。',
   'model.editConfig': 'モデル設定を編集',
   'model.deleteTitle': 'モデルを削除',

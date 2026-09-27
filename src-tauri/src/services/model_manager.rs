@@ -406,6 +406,7 @@ pub fn get_models() -> Vec<ModelConfig> {
             anthropic_url: Some(format!("http://127.0.0.1:{}/anthropic", server_info.port)),
             api_protocol: None,
             responses_fallback: None,
+            auto_degrade_protocols: None,
             model_type: Some(crate::models::model::ModelType::Local),
             openai_tested: None,
             anthropic_tested: None,
@@ -494,6 +495,11 @@ pub struct AddModelInput {
     /// ignores it for every other dialect.
     #[serde(default)]
     pub responses_fallback: Option<bool>,
+    /// Let the bridge learn, from an explicit "not implemented", that this
+    /// provider does not serve a dialect, and route around it by itself.
+    /// Opt-in: off means a refusal is reported to the user unchanged.
+    #[serde(default)]
+    pub auto_degrade_protocols: Option<bool>,
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
@@ -518,6 +524,7 @@ pub fn add_model(input: AddModelInput) -> ModelConfig {
         anthropic_url: input.anthropic_url,
         api_protocol: normalize_api_protocol(input.api_protocol),
         responses_fallback: input.responses_fallback.filter(|fallback| *fallback),
+        auto_degrade_protocols: input.auto_degrade_protocols.filter(|enabled| *enabled),
         model_type: auto_type,
         openai_tested: None,
         anthropic_tested: None,
@@ -569,6 +576,11 @@ pub struct UpdateModelInput {
     /// at face value.
     #[serde(default)]
     pub responses_fallback: Option<bool>,
+    /// Let the bridge learn, from an explicit "not implemented", that this
+    /// provider does not serve a dialect, and route around it by itself.
+    /// Opt-in: off means a refusal is reported to the user unchanged.
+    #[serde(default)]
+    pub auto_degrade_protocols: Option<bool>,
     #[serde(default)]
     pub api_key: Option<String>,
     #[serde(default)]
@@ -603,6 +615,9 @@ pub fn update_model(internal_id: &str, updates: UpdateModelInput) -> Option<Mode
     }
     if let Some(fallback) = updates.responses_fallback {
         models[index].responses_fallback = fallback.then_some(true);
+    }
+    if let Some(enabled) = updates.auto_degrade_protocols {
+        models[index].auto_degrade_protocols = enabled.then_some(true);
     }
     if let Some(key) = updates.api_key {
         models[index].api_key = key;
@@ -954,6 +969,7 @@ mod tests {
             anthropic_url: None,
             api_protocol: None,
             responses_fallback: None,
+            auto_degrade_protocols: None,
             model_type: None,
             openai_tested: None,
             anthropic_tested: None,

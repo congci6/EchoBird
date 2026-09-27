@@ -119,6 +119,7 @@ export function ModelNexusProvider({ children }: { children: React.ReactNode }) 
     modelId: '',
     apiProtocol: '',
     responsesFallback: false,
+    autoDegradeProtocols: false,
   });
 
   const closeModelModal = useCallback(() => {
@@ -177,6 +178,7 @@ export function ModelNexusProvider({ children }: { children: React.ReactNode }) 
         modelId: freshModel.modelId || '',
         apiProtocol: freshModel.apiProtocol || '',
         responsesFallback: freshModel.responsesFallback ?? false,
+        autoDegradeProtocols: freshModel.autoDegradeProtocols ?? false,
       });
       setShowAddModelModal(true);
     },
@@ -935,6 +937,7 @@ export function ModelNexusMain() {
                       modelId: '',
                       apiProtocol: '',
                       responsesFallback: false,
+                      autoDegradeProtocols: false,
                     });
                     setEditingModelId(null);
                     setShowAddModelModal(true);
@@ -998,6 +1001,32 @@ type DirectoryEntry = {
   // per-protocol split is needed.
   modelIds?: string[];
   region: 'cn' | 'global';
+};
+
+/** What one probe of the four dialects found. Mirrors `protocol_probe::DialectReport`. */
+type DialectReport = {
+  protocol: string;
+  available: boolean;
+  /** `available` | `unsupported` | `auth` | `unknown` — not a boolean, because a
+   *  bad key and a missing endpoint look identical from the outside and send the
+   *  user to fix completely different things. */
+  outcome: 'available' | 'unsupported' | 'auth' | 'unknown';
+  detail?: string;
+  latencyMs: number;
+};
+
+type ProtocolProbe = { reports: DialectReport[]; error?: string };
+
+/** Reuse the dropdown's own labels so the report reads the same as the picker. */
+const PROTOCOL_LABEL_KEYS: Record<string, TKey> = Object.fromEntries(
+  API_PROTOCOL_OPTIONS.filter((o) => o.value).map((o) => [o.value, o.label])
+);
+
+const OUTCOME_KEYS: Record<DialectReport['outcome'], TKey> = {
+  available: 'model.probeOutcome.available',
+  unsupported: 'model.probeOutcome.unsupported',
+  auth: 'model.probeOutcome.auth',
+  unknown: 'model.probeOutcome.unknown',
 };
 
 const BUNDLED_PROVIDERS: DirectoryEntry[] = modelDirectory.providers as DirectoryEntry[];
@@ -1143,6 +1172,7 @@ export function ModelNexusPanel() {
         modelIdOptions: options,
         apiProtocol: '',
         responsesFallback: false,
+        autoDegradeProtocols: false,
       });
       setEditingModelId(null);
       setShowAddModelModal(true);
@@ -1178,6 +1208,8 @@ export function AddModelModal() {
   const { t } = useI18n();
   const { showToast } = useToast();
   const [isSavingModel, setIsSavingModel] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [protocolProbe, setProtocolProbe] = useState<ProtocolProbe | null>(null);
   const { addSelectedModel, updateSelectedModel, selectedIds } = useFreeModels();
   const {
     showAddModelModal,
@@ -1193,6 +1225,31 @@ export function AddModelModal() {
     modelModalDestination,
     setModelModalDestination,
   } = useModelNexus();
+
+  /** Ask the provider which dialects it actually serves.
+   *
+   *  The protocol dropdown states what the CLIENT will speak. Nothing in this
+   *  form says what the PROVIDER will answer, and for Responses there is no
+   *  second URL to consult the way Anthropic has one. So ask it directly.
+   *
+   *  Button press only: this spends the user's tokens, so it must not fire on
+   *  save or on a field change. */
+  const runProtocolProbe = async () => {
+    setProbing(true);
+    setProtocolProbe(null);
+    try {
+      const reports = (await api.probeModelProtocols({
+        baseUrl: newModelForm.baseUrl,
+        apiKey: newModelForm.apiKey,
+        model: newModelForm.modelId,
+      })) as DialectReport[];
+      setProtocolProbe({ reports });
+    } catch (error) {
+      setProtocolProbe({ reports: [], error: String(error) });
+    } finally {
+      setProbing(false);
+    }
+  };
 
   if (!showAddModelModal) return null;
 
@@ -1394,6 +1451,82 @@ export function AddModelModal() {
                   A provider answering `not implemented` is a common shape, and
                   only the user knows which one they have, so the escape hatch is
                   a switch rather than a guess. */}
+              {/* Four separate questions, one button. The protocol dropdown above
+                  states what the CLIENT will speak; nothing in the form says what
+                  the PROVIDER will answer, and for Responses there is no field to
+                  consult. So ask it — before saving, while the settings are still
+                  on screen and the key is to hand. */}
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={runProtocolProbe}
+                  disabled={probing || newModelForm.baseUrl.trim() === ''}
+                  className="inline-flex items-center gap-1.5 rounded border border-cyber-border px-2 py-1 text-[10px] text-cyber-text-secondary transition-colors hover:border-cyber-text hover:text-cyber-text disabled:opacity-40"
+                >
+                  {probing ? t('model.probeProtocolsRunning') : t('model.probeProtocols')}
+                </button>
+                {protocolProbe && (
+                  <ul className="mt-1.5 space-y-0.5">
+                    {protocolProbe.reports.map((entry) => (
+                      <li key={entry.protocol} className="flex items-start gap-1.5 text-[10px]">
+                        <span
+                          className={
+                            entry.available
+                              ? 'text-emerald-500'
+                              : entry.outcome === 'auth'
+                                ? 'text-amber-500'
+                                : 'text-red-500'
+                          }
+                        >
+                          {entry.available ? '●' : '○'}
+                        </span>
+                        <span className="text-cyber-text-secondary">
+                          {t(PROTOCOL_LABEL_KEYS[entry.protocol] ?? 'model.apiProtocolChat')}
+                        </span>
+                        <span className="text-cyber-text-tertiary">
+                          {t(OUTCOME_KEYS[entry.outcome])}
+                          {entry.latencyMs > 0 && ` · ${entry.latencyMs}ms`}
+                        </span>
+                        {entry.detail && (
+                          <span className="truncate opacity-70" title={entry.detail}>
+                            {entry.detail}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {/* The manual switch above needs the user to already know their
+                  provider refuses Responses. This one does not: it lets the
+                  bridge learn that from the provider's own answer, once, and
+                  then stop asking. It only reacts to an explicit
+                  "not implemented" style refusal — never to a timeout, a rate
+                  limit or a 500 that says nothing about the endpoint, because
+                  degrading on those would silently change the dialect under a
+                  transient failure. */}
+              {newModelForm.apiProtocol === 'openai-responses' && (
+                <label className="mt-2 flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newModelForm.autoDegradeProtocols}
+                    onChange={(e) =>
+                      setNewModelForm((prev) => ({
+                        ...prev,
+                        autoDegradeProtocols: e.target.checked,
+                      }))
+                    }
+                    className="mt-0.5 accent-cyber-text"
+                  />
+                  <span className="text-[11px] leading-snug text-cyber-text-secondary">
+                    {t('model.autoDegradeProtocols')}
+                    <span className="block text-[10px] opacity-80">
+                      {t('model.autoDegradeProtocolsHint')}
+                    </span>
+                  </span>
+                </label>
+              )}
+
               {newModelForm.apiProtocol === 'openai-responses' && (
                 <label className="mt-2 flex items-start gap-2 cursor-pointer">
                   <input
@@ -1554,6 +1687,7 @@ export function AddModelModal() {
                     modelId: newModelForm.modelId,
                     apiProtocol: newModelForm.apiProtocol,
                     responsesFallback: newModelForm.responsesFallback,
+                    autoDegradeProtocols: newModelForm.autoDegradeProtocols,
                   });
                   if (updatedModel) {
                     updateSelectedModel({
@@ -1576,6 +1710,7 @@ export function AddModelModal() {
                     scope: modelModalDestination === 'freeRouter' ? 'smartRouter' : 'modelCenter',
                     apiProtocol: newModelForm.apiProtocol || undefined,
                     responsesFallback: newModelForm.responsesFallback || undefined,
+                    autoDegradeProtocols: newModelForm.autoDegradeProtocols || undefined,
                   });
                   if (modelModalDestination === 'freeRouter') {
                     try {
@@ -1605,6 +1740,7 @@ export function AddModelModal() {
                   modelId: '',
                   apiProtocol: '',
                   responsesFallback: false,
+                  autoDegradeProtocols: false,
                 });
                 setShowAddModelModal(false);
                 setModelModalDestination('modelNexus');

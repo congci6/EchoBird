@@ -309,6 +309,7 @@ pub(super) fn read_claudecode() -> Option<ModelInfo> {
         relay_mode: None,
         one_m_context: None,
         responses_fallback: None,
+        auto_degrade_protocols: None,
     })
 }
 
@@ -409,6 +410,7 @@ mod tests {
             relay_mode,
             one_m_context: None,
             responses_fallback: None,
+            auto_degrade_protocols: None,
         }
     }
 

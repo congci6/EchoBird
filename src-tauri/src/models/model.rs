@@ -54,6 +54,9 @@ pub struct ModelConfig {
     /// so the bridge converts instead. Absent means off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub responses_fallback: Option<bool>,
+    /// Let the bridge learn from an explicit "not implemented" that this
+    /// provider does not serve a dialect, and route around it. Opt-in.
+    pub auto_degrade_protocols: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "type")]
     pub model_type: Option<ModelType>,
@@ -97,6 +100,7 @@ mod tests {
             anthropic_url: None,
             api_protocol: None,
             responses_fallback: None,
+            auto_degrade_protocols: None,
             model_type: Some(ModelType::Cloud),
             openai_tested: None,
             anthropic_tested: None,

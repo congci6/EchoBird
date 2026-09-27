@@ -214,6 +214,15 @@ const zhHant: Partial<Translations> = {
   'model.responsesFallback': '供應商不支援 Responses',
   'model.responsesFallbackHint':
     '當供應商對 /v1/responses 回傳「not implemented」時，自動轉換為 Chat Completions。',
+  'model.autoDegradeProtocols': '報錯時自動降級',
+  'model.autoDegradeProtocolsHint':
+    '若供應商回覆「未實作」，橋接會自動改用 Chat Completions 重試一次，並在本次執行內記住。逾時、一般伺服器錯誤不會觸發降級。',
+  'model.probeProtocols': '測試支援的協定',
+  'model.probeProtocolsRunning': '正在測試協定…',
+  'model.probeOutcome.available': '可用',
+  'model.probeOutcome.unsupported': '不支援',
+  'model.probeOutcome.auth': '金鑰被拒',
+  'model.probeOutcome.unknown': '無回應',
   'model.invalidOpenaiUrl': '請輸入有效的 OpenAI 位址。',
   'model.editConfig': '編輯模型設定',
   'model.deleteTitle': '刪除模型',

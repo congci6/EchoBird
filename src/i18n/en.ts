@@ -212,6 +212,15 @@ const en: Translations = {
   'model.responsesFallback': 'Provider does not support Responses',
   'model.responsesFallbackHint':
     'Degrade to Chat Completions when the provider answers "not implemented" on /v1/responses.',
+  'model.autoDegradeProtocols': 'Auto-downgrade on refusal',
+  'model.autoDegradeProtocolsHint':
+    'If the provider answers "not implemented", the bridge retries once via Chat Completions and remembers it for this session. It never triggers on a timeout or a generic server error.',
+  'model.probeProtocols': 'Test supported protocols',
+  'model.probeProtocolsRunning': 'Testing protocols…',
+  'model.probeOutcome.available': 'available',
+  'model.probeOutcome.unsupported': 'not supported',
+  'model.probeOutcome.auth': 'key rejected',
+  'model.probeOutcome.unknown': 'no answer',
   'model.invalidOpenaiUrl': 'Enter a valid OpenAI URL.',
   'model.editConfig': 'EDIT MODEL CONFIG',
   'model.deleteTitle': 'DELETE MODEL',

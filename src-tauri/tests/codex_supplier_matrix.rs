@@ -251,6 +251,7 @@ async fn codex_reaches_a_supplier_speaking_any_of_the_four_dialects() {
             api_key: "test-key".to_string(),
             model: REAL_MODEL.to_string(),
             protocol: dialect,
+            auto_degrade: true,
         });
         let bridge = serve(build_router().unwrap()).await;
 

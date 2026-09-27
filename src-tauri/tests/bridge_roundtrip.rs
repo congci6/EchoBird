@@ -144,6 +144,7 @@ async fn codex_responses_request_reaches_a_chat_only_provider() {
         api_key: "test-key".to_string(),
         model: "space-bunny-free".to_string(),
         protocol: WireProtocol::OpenaiChat,
+        auto_degrade: true,
     });
     let bridge = serve(build_router().unwrap()).await;
 
@@ -225,6 +226,7 @@ async fn responses_client_reaches_a_responses_provider_without_being_flattened()
         api_key: "test-key".to_string(),
         model: "space-bunny-free".to_string(),
         protocol: WireProtocol::OpenaiResponses,
+        auto_degrade: true,
     });
     let bridge = serve(build_router().unwrap()).await;
 
@@ -299,6 +301,7 @@ async fn responses_passthrough_stream_rewrites_only_the_model() {
         api_key: "test-key".to_string(),
         model: "space-bunny-free".to_string(),
         protocol: WireProtocol::OpenaiResponses,
+        auto_degrade: true,
     });
     let bridge = serve(build_router().unwrap()).await;
 

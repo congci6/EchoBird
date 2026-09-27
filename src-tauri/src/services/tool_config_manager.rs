@@ -95,6 +95,12 @@ pub struct ModelInfo {
     /// the switch existed keeps its behaviour.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub responses_fallback: Option<bool>,
+    /// Let the bridge learn, from an explicit "not implemented", that this
+    /// provider does not serve a dialect, and route around it. Off means the
+    /// refusal is handed to the user unchanged, which is the pre-switch
+    /// behaviour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_degrade_protocols: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_model: Option<String>,
     /// Claude Desktop / Claude Code only. Connect directly to the selected
@@ -366,6 +372,10 @@ fn route_through_bridge_if_needed(tool_id: &str, model_info: &mut ModelInfo) {
             api_key: model_info.api_key.clone().unwrap_or_default(),
             model: model_info.model.clone().unwrap_or_default(),
             protocol: native,
+            // Opt-in only: the user asked the bridge to learn from an explicit
+            // refusal. Off, a provider that does not serve Responses produces
+            // the same 500 it always did, which is the pre-existing behaviour.
+            auto_degrade: model_info.auto_degrade_protocols == Some(true),
         },
     );
     model_info.base_url = Some(format!(
@@ -975,6 +985,7 @@ mod tests {
             relay_mode: None,
             one_m_context: None,
             responses_fallback: None,
+            auto_degrade_protocols: None,
         }
     }
 
@@ -1067,6 +1078,7 @@ mod tests {
             api_key: model_info.api_key.clone().unwrap_or_default(),
             model: model_info.model.clone().unwrap_or_default(),
             protocol: native,
+            auto_degrade: false,
         })
     }
 
