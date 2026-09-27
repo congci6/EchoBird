@@ -161,4 +161,47 @@ mod tests {
         assert!(!relay.exists());
         fs::remove_dir_all(dir).ok();
     }
+
+    #[test]
+    fn migration_prefers_actual_model_over_the_display_label() {
+        // The relay file of a supplier that exposes a model under a friendly
+        // label carries BOTH: `displayModel` is what the UI shows, and
+        // `actualModel` is the id the provider actually serves. Migrating on
+        // the label instead is what made Codex send `gpt-5.5` to a gateway
+        // with no such channel ("no available channel", HTTP 503). The
+        // migration must key off the real id and leave no trace of the label.
+        let dir = unique_tmpdir();
+        let relay = dir.join(LEGACY_RELAY_FILENAME);
+        fs::write(
+            dir.join(CONFIG_FILENAME),
+            "model = \"gpt-5.5\"\n\n[model_providers.OpenAI]\nbase_url = \"http://127.0.0.1:53682/v1\"\n",
+        )
+        .unwrap();
+        fs::write(
+            &relay,
+            serde_json::json!({
+                "apiKey": "test-key",
+                "baseUrl": "https://api.pie-xian.com/v1",
+                "actualModel": "space-bunny-free",
+                "displayModel": "gpt-5.5",
+                "modelName": "小随管"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        assert!(migrate_legacy_proxy_config_from(&dir, &relay).unwrap());
+        let config = fs::read_to_string(dir.join(CONFIG_FILENAME)).unwrap();
+        assert!(
+            config.contains("model = \"space-bunny-free\""),
+            "real model id missing: {config}"
+        );
+        assert!(
+            !config.contains("gpt-5.5"),
+            "the display label leaked into the migrated config: {config}"
+        );
+        assert!(config.contains("base_url = \"https://api.pie-xian.com/v1\""));
+        assert!(!config.contains(LEGACY_PROXY_URL_FRAGMENT));
+        fs::remove_dir_all(dir).ok();
+    }
 }
