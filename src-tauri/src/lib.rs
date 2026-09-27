@@ -650,8 +650,75 @@ fn now_millis() -> u128 {
         .unwrap_or_default()
 }
 
+/// Why the process is going down, recorded before the Tauri runtime is even
+/// constructed. A Tauri app whose window is created `visible: false` cannot
+/// distinguish, from the outside, between "setup returned Err" and "a thread
+/// called `process::exit`" and "the runtime aborted". All three look exactly
+/// like the process appearing for an instant and disappearing.
+#[allow(dead_code)]
+#[derive(Debug)]
+struct StartupFailure {
+    where_: &'static str,
+    what: String,
+}
+
+impl std::fmt::Display for StartupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} in {}", self.what, self.where_)
+    }
+}
+
+impl StartupFailure {
+    fn new(where_: &'static str, what: impl Into<String>) -> Self {
+        StartupFailure {
+            where_,
+            what: what.into(),
+        }
+    }
+}
+
+/// Append a breadcrumb describing an abnormal exit. Called from the three
+/// places that can end the process before the window appears: the panic hook,
+/// the exit hook, and the `?` on the setup closure's return.
+fn record_startup_failure(failure: &StartupFailure) {
+    let detail = failure.to_string();
+    let message = format!(
+        "{{\"stage\":\"FAIL\",\"where\":\"{}\",\"what\":\"{}\"}}\n",
+        failure.where_,
+        detail.replace('"', "'")
+    );
+    let path = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("echobird-startup.log")));
+    if let Some(path) = path {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            use std::io::Write;
+            let _ = file.write_all(message.as_bytes());
+        }
+    }
+}
+
 pub fn run() {
     startup_breadcrumb("run:enter");
+
+    // Name the exit, not just the last stage reached. A breadcrumb trail that
+    // only records progress records "it got this far" — which is exactly the
+    // information we already had and could not act on. What was missing is
+    // WHY. Install the hooks first, so a failure below is caught by them.
+    let previous_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "unknown".to_string());
+        record_startup_failure(&StartupFailure::new("panic", location));
+        previous_hook(info);
+    }));
+
     // Hydrate the process PATH from the Windows registry (HKLM + HKCU
     // `Path`) before anything resolves executables — the Windows analog of
     // the Unix login-shell PATH sourcing in `utils::platform::shell_command_path`.
@@ -694,22 +761,58 @@ pub fn run() {
         .manage(services::parasite::create_parasite_sessions())
         .setup(move |app| {
             startup_breadcrumb("setup:enter");
-            // Clean up orphaned llama-server from a previous EchoBird session.
-            kill_stale_llama_server();
-            log::info!("[Setup] Cleaned up any leftover llama-server processes");
 
-            // Older releases pointed Codex and ChatGPT at EchoBird's local
-            // Responses-to-Chat bridge. Migrate that config before starting
-            // services so already-running clients do not keep calling a route
-            // that no longer exists.
-            if let Some(codex_dir) = services::codex_runtime::default_codex_dir() {
-                match services::codex_runtime::migrate_legacy_proxy_config(&codex_dir) {
-                    Ok(true) => log::info!("[Setup] migrated legacy Codex proxy config"),
-                    Ok(false) => {}
-                    Err(e) => {
-                        log::warn!("[Setup] legacy Codex proxy migration failed (non-fatal): {e}")
+            // Startup housekeeping, isolated so it cannot end the launch.
+            //
+            // Both of the chores below are best-effort by design: killing a
+            // leftover local-LLM process, and rewriting a config an older
+            // release wrote. Neither is a precondition for showing a window.
+            // Before, they ran inline, so a single error anywhere inside them —
+            // a `.unwrap()` in the migration path, an unreadable PID file, a
+            // config the user lacks permission to rewrite — took down
+            // `setup()`, and because the window is created `visible: false`
+            // and only shown once the frontend calls `appReady()`, the user
+            // saw a process blink and vanish with no message. That is exactly
+            // the reported symptom, and the breadcrumb trail could only say
+            // "it stopped somewhere in here".
+            //
+            // So: run them out of the setup path, log what went wrong, and
+            // let startup continue. A stale llama-server is a resource leak,
+            // not a reason the user cannot open their app.
+            //
+            // `catch_unwind` rather than plain `if let`: an error that is
+            // *returned* was never able to kill startup (every caller below
+            // already handles it), so what we are actually defending against
+            // is a panic, and only a unwind boundary stops one.
+            let housekeeping = std::panic::catch_unwind(|| {
+                // Clean up orphaned llama-server from a previous EchoBird session.
+                kill_stale_llama_server();
+                log::info!("[Setup] Cleaned up any leftover llama-server processes");
+
+                // Older releases pointed Codex and ChatGPT at EchoBird's local
+                // Responses-to-Chat bridge. Migrate that config before starting
+                // services so already-running clients do not keep calling a route
+                // that no longer exists.
+                if let Some(codex_dir) = services::codex_runtime::default_codex_dir() {
+                    match services::codex_runtime::migrate_legacy_proxy_config(&codex_dir) {
+                        Ok(true) => log::info!("[Setup] migrated legacy Codex proxy config"),
+                        Ok(false) => {}
+                        Err(e) => {
+                            log::warn!(
+                                "[Setup] legacy Codex proxy migration failed (non-fatal): {e}"
+                            )
+                        }
                     }
                 }
+            });
+            if let Err(panic) = housekeeping {
+                let detail = panic
+                    .downcast_ref::<&str>()
+                    .map(|s| s.to_string())
+                    .or_else(|| panic.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "unknown panic".to_string());
+                log::warn!("[Setup] startup housekeeping panicked (non-fatal): {detail}");
+                startup_breadcrumb("setup:housekeeping_panicked");
             }
 
             startup_breadcrumb("setup:resource_dir");
@@ -1101,6 +1204,16 @@ pub fn run() {
             settings_commands::get_avatar,
         ])
         .build(context)
+        // `build()` is the one call in the chain that can fail on a setup
+        // error, and it hands that back as a `Result`. The `.expect()` here
+        // was the whole reason a setup failure was invisible: it panicked
+        // with a generic message, out of a window that was never shown, with
+        // no log file yet. Keep the unwrap, but name the failure first.
+        .inspect_err(|error| {
+            let detail = error.to_string();
+            log::error!("[App] startup failed: {detail}");
+            record_startup_failure(&StartupFailure::new("tauri.build", detail));
+        })
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
