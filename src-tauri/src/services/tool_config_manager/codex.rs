@@ -350,7 +350,7 @@ pub(crate) fn apply_codex_at(
     // dialect has to be reached through EchoBird's bridge, which translates in
     // both directions. Everything below still keys off the REAL upstream URL so
     // vendor detection (catalog, web search) keeps working unchanged.
-    let codex_base_url = match codex_route(model_info, &base_url, &api_key, model_id) {
+    let codex_base_url = match codex_route(model_info, &base_url, api_key, model_id) {
         CodexRoute::Direct { base_url } => base_url,
         CodexRoute::Bridge { target } => {
             crate::services::protocol_bridge::ensure_serving(target);
@@ -815,5 +815,84 @@ mod tests {
         assert!(!other.contains("model_supports_reasoning_summaries"));
         assert!(!other.contains("model_reasoning_summary"));
         assert!(other.contains("web_search = \"live\""));
+    }
+
+    fn info(
+        name: &str,
+        model: &str,
+        base_url: &str,
+        api_protocol: Option<&str>,
+    ) -> crate::services::tool_config_manager::ModelInfo {
+        crate::services::tool_config_manager::ModelInfo {
+            name: Some(name.to_string()),
+            model: Some(model.to_string()),
+            base_url: Some(base_url.to_string()),
+            api_key: Some("test-key".to_string()),
+            anthropic_url: None,
+            protocol: Some("openai".to_string()),
+            api_protocol: api_protocol.map(str::to_string),
+            display_model: None,
+            relay_mode: None,
+            one_m_context: None,
+        }
+    }
+
+    /// A supplier is configured with a human-readable NAME and a real model
+    /// id. Only the id may ever reach the provider: the name is a label the
+    /// user picked in the model centre, and gateways answer 503
+    /// ("no available channel for model X") when handed a label it has never
+    /// heard of. This is the exact shape that produced the `gpt-5.5` 503 —
+    /// the label `gpt-5.5` was sent while the real id was `space-bunny-free`.
+    #[test]
+    fn codex_route_targets_the_real_model_id_not_the_display_name() {
+        for (protocol, expect_direct) in [
+            (None, true),
+            (Some("openai-responses"), true),
+            (Some("openai-chat"), false),
+            (Some("anthropic"), false),
+            (Some("gemini"), false),
+        ] {
+            let model_info = info(
+                "gpt-5.5",
+                "space-bunny-free",
+                "https://api.example.com/v1",
+                protocol,
+            );
+            match codex_route(
+                &model_info,
+                "https://api.example.com/v1",
+                "test-key",
+                "space-bunny-free",
+            ) {
+                CodexRoute::Direct { base_url } => {
+                    assert!(expect_direct, "{protocol:?} should not be direct");
+                    assert_eq!(base_url, "https://api.example.com/v1");
+                }
+                CodexRoute::Bridge { target } => {
+                    assert!(!expect_direct, "{protocol:?} should be bridged");
+                    assert_eq!(
+                        target.model, "space-bunny-free",
+                        "{protocol:?} leaked the display name upstream"
+                    );
+                    assert_eq!(target.base_url, "https://api.example.com/v1");
+                }
+            }
+        }
+    }
+
+    /// The label must not survive anywhere in the file Codex reads. This is
+    /// the belt-and-braces half of the test above: even a stale key left by
+    /// an older EchoBird would send the label on a second pass.
+    #[test]
+    fn canonical_fields_never_contain_the_display_label() {
+        let out = write_codex_canonical_fields(
+            "model = \"gpt-5.5\"\nreview_model = \"gpt-5.5\"\n",
+            "https://api.example.com/v1",
+            "https://api.example.com/v1",
+            "space-bunny-free",
+            DEFAULT_CODEX_CONTEXT_WINDOW,
+        );
+        assert!(out.contains("model = \"space-bunny-free\""), "got: {out}");
+        assert!(!out.contains("gpt-5.5"), "label leaked into config: {out}");
     }
 }
