@@ -188,14 +188,25 @@ jobs:
           # `_up_/tools/`, which is how Tauri encodes the config's `../tools/`
           # (confirmed against the Linux deb, where tools land in
           # /usr/lib/EchoBird/_up_/tools/).
-          ROOT="/tmp/portable-${VER}"
-          STAGE="$ROOT/EchoBird"
+          # Stage inside the workspace, using RELATIVE paths.
+          #
+          # Git Bash gives /tmp an MSYS-virtual path that the native Windows
+          # Python interpreter cannot resolve — the 5.7.10 run died on exactly
+          # that, with FileNotFoundError on '/tmp/portable-5.7.10' raised from
+          # inside shutil. Same reason the archive is built from a relative
+          # root: no shell translation step in the path handed to Python.
+          ROOT="portable-${VER}"
+          STAGE="${ROOT}/EchoBird"
           rm -rf "$ROOT"
           mkdir -p "$STAGE/_up_"
           cp "$EXE" "$STAGE/EchoBird.exe"
           cp -r tools "$STAGE/_up_/tools"
-          cd "$ROOT"
+          ls -l "$STAGE"
           python -c "import shutil; shutil.make_archive('EchoBird_${VER}_Windows_x64_portable', 'zip', '$ROOT', 'EchoBird')"
+          # Prove the archive is well-formed and actually carries the resources
+          # before publishing it. A silently empty zip is worse than a failed
+          # build, because the user discovers it after downloading.
+          python -c "import zipfile,sys; n=zipfile.ZipFile('EchoBird_${VER}_Windows_x64_portable.zip').namelist(); assert any(x.endswith('EchoBird.exe') for x in n), 'missing exe'; assert any('_up_/tools/' in x for x in n), 'missing tools'; print('portable zip ok:', len(n), 'entries')"
           gh release upload "${TAG}" "EchoBird_${VER}_Windows_x64_portable.zip" \
             --clobber --repo "${REPO}"
           echo "uploaded portable zip"
