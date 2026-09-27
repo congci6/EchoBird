@@ -24,6 +24,7 @@ mod vibe_trading;
 mod workbuddy;
 mod zcode;
 
+use crate::services::protocol::WireProtocol;
 use crate::services::{codex_accounts, tool_manager};
 use aider::{apply_aider, read_aider};
 use claudecode::{
@@ -267,11 +268,81 @@ fn model_input_modalities_for(model_id: &str) -> &'static [&'static str] {
 //  APPLY MODEL �?main entry point
 // ════════════════════════════════════════════════════════════════
 
+/// Point a tool at the local protocol bridge when the model is pinned to a
+/// dialect that tool cannot speak itself.
+///
+/// Nearly every tool in the catalogue drives OpenAI Chat Completions through
+/// its `base_url`. When the user pins the model to a different dialect we must
+/// not write the upstream URL into that field — the tool would call, say,
+/// `/v1/chat/completions` on a Responses-only endpoint and get a 404. Writing
+/// the bridge's loopback URL there instead lets EchoBird translate in both
+/// directions, which is what makes the choice a free one.
+///
+/// Only an explicit choice can require this. With no `api_protocol` every tool
+/// stays on the dialect it already speaks — the behaviour every config written
+/// before protocol selection existed relies on.
+fn route_through_bridge_if_needed(tool_id: &str, model_info: &mut ModelInfo) {
+    // Codex and the Claude apps run their own proxies/relays and decide their
+    // own protocol (codex.rs makes its own Responses-vs-bridge call). Re-
+    // pointing their base URL here would fight that machinery.
+    if matches!(
+        tool_id,
+        "codex" | "chatgptdesktop" | "claudecode" | "claudedesktop"
+    ) {
+        return;
+    }
+
+    let Some(selected) = model_info
+        .api_protocol
+        .as_deref()
+        .and_then(WireProtocol::parse)
+    else {
+        return;
+    };
+    if selected == WireProtocol::OpenaiChat {
+        return;
+    }
+
+    // Only tools that speak OpenAI through `base_url` are safe to re-point
+    // here. An Anthropic-only tool keeps its URL in `anthropic_url` and has
+    // its own relay; a tool declaring nothing is one we know nothing about.
+    let speaks_openai = tool_manager::tool_api_protocols(tool_id)
+        .is_some_and(|protocols| protocols.iter().any(|entry| entry == "openai"));
+    if !speaks_openai {
+        return;
+    }
+
+    let Some(upstream) = model_info
+        .base_url
+        .clone()
+        .filter(|url| !url.trim().is_empty())
+    else {
+        log::warn!("[ProtocolBridge] {tool_id} has no base URL to bridge through");
+        return;
+    };
+
+    crate::services::protocol_bridge::ensure_serving(
+        crate::services::protocol_bridge::BridgeTarget {
+            base_url: upstream,
+            api_key: model_info.api_key.clone().unwrap_or_default(),
+            model: model_info.model.clone().unwrap_or_default(),
+            protocol: selected,
+        },
+    );
+    model_info.base_url = Some(format!(
+        "{}/v1",
+        crate::services::protocol_bridge::base_url()
+    ));
+    log::info!(
+        "[ProtocolBridge] {tool_id} routed through the bridge as {}",
+        selected.as_str()
+    );
+}
+
 pub async fn apply_model_to_tool(tool_id: &str, model_info: ModelInfo) -> ApplyResult {
     log::info!("[ToolConfigManager] Applying model to {}", tool_id);
-    let model_info = normalize_model_info_for_tool(tool_id, model_info);
-
-    // Dispatch custom tools to their own handlers
+    let mut model_info = normalize_model_info_for_tool(tool_id, model_info);
+    route_through_bridge_if_needed(tool_id, &mut model_info); // Dispatch custom tools to their own handlers
     match tool_id {
         // OpenClaw: direct write to ~/.openclaw/openclaw.json (no patch needed since v2026.3.13)
         "openclaw" => return apply_openclaw(&model_info),
@@ -843,5 +914,79 @@ mod tests {
     #[test]
     fn model_input_modalities_for_unknown_model_defaults_to_text() {
         assert_eq!(model_input_modalities_for("glm-5.2"), &["text"]);
+    }
+
+    // ─── protocol bridge routing ───
+    //
+    // Only the early-return arms are unit-tested here: the branch that
+    // actually starts the bridge binds a port, so it is covered end-to-end by
+    // `tests/protocol_conversion.rs` instead.
+
+    fn routing_model(protocol: Option<&str>) -> ModelInfo {
+        ModelInfo {
+            name: Some("M".to_string()),
+            model: Some("m".to_string()),
+            base_url: Some("https://provider.example/v1".to_string()),
+            api_key: Some("k".to_string()),
+            anthropic_url: None,
+            protocol: Some("openai".to_string()),
+            api_protocol: protocol.map(str::to_string),
+            display_model: None,
+            relay_mode: None,
+            one_m_context: None,
+        }
+    }
+
+    #[test]
+    fn no_protocol_choice_leaves_the_base_url_untouched() {
+        // The pre-protocol-selection behaviour every existing config relies
+        // on: nothing is rewritten, so nothing can start regressing.
+        for protocol in [None, Some(""), Some("not-a-protocol")] {
+            let mut info = routing_model(protocol);
+            route_through_bridge_if_needed("opencode", &mut info);
+            assert_eq!(
+                info.base_url.as_deref(),
+                Some("https://provider.example/v1"),
+                "protocol={protocol:?} must not re-point the base URL"
+            );
+        }
+    }
+
+    #[test]
+    fn chat_completions_choice_needs_no_bridge() {
+        let mut info = routing_model(Some("openai-chat"));
+        route_through_bridge_if_needed("opencode", &mut info);
+        assert_eq!(
+            info.base_url.as_deref(),
+            Some("https://provider.example/v1")
+        );
+    }
+
+    #[test]
+    fn tools_with_their_own_routing_are_left_alone() {
+        // Codex decides Responses-vs-bridge in codex.rs, and the Claude apps
+        // have their own model-id relay. Re-pointing them here would fight
+        // that machinery.
+        for tool_id in ["codex", "chatgptdesktop", "claudecode", "claudedesktop"] {
+            let mut info = routing_model(Some("gemini-generate-content"));
+            route_through_bridge_if_needed(tool_id, &mut info);
+            assert_eq!(
+                info.base_url.as_deref(),
+                Some("https://provider.example/v1"),
+                "{tool_id} must keep its own routing"
+            );
+        }
+    }
+
+    #[test]
+    fn tools_that_do_not_declare_openai_are_left_alone() {
+        // An Anthropic-only tool keeps its URL in `anthropic_url`; re-pointing
+        // `base_url` for it would not make it speak the chosen dialect.
+        let mut info = routing_model(Some("openai-responses"));
+        route_through_bridge_if_needed("claudescience", &mut info);
+        assert_eq!(
+            info.base_url.as_deref(),
+            Some("https://provider.example/v1")
+        );
     }
 }
