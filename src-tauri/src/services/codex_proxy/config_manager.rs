@@ -35,8 +35,19 @@ fn legacy_relay_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".echobird").join(LEGACY_RELAY_FILENAME))
 }
 
-/// Convert the last proxy-backed config to a direct Responses connection.
-/// Returns `true` only when a legacy config was rewritten.
+/// Re-point a config still aimed at the retired local proxy at the protocol
+/// bridge, so a user who upgrades without re-picking their supplier is not
+/// left calling a port nothing listens on.
+///
+/// The bridge is the destination rather than the provider's own URL on
+/// purpose: Codex rewrites `model` in `config.toml` from its own remembered
+/// state, so a config aimed straight at the provider sends the display label
+/// and the provider answers `503 no available channel`. Only the bridge can
+/// substitute the real id.
+///
+/// Idempotent by construction — it only fires while the legacy proxy URL is
+/// still in the file, so the rewrite cannot loop. Returns `true` only when a
+/// legacy config was actually rewritten.
 pub fn migrate_legacy_proxy_config(codex_dir: &Path) -> io::Result<bool> {
     let relay_path = legacy_relay_path().ok_or_else(|| {
         io::Error::new(
