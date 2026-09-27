@@ -121,6 +121,10 @@ export interface ApplyModelInput {
   apiKey: string;
   model: string;
   protocol?: string;
+  /** Degrade a Responses protocol choice to Chat Completions. Only read when
+   * `apiProtocol` is Responses; the mapping ignores it for every other
+   * dialect, so it is safe to send unconditionally. */
+  responsesFallback?: boolean;
   /** Claude Desktop / Claude Code only. Connect directly to the selected
    * Anthropic-compatible relay instead of EchoBird's model-id router. */
   relayMode?: boolean;

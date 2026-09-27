@@ -506,6 +506,11 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
         // what the tool speaks natively, which is what lets a Responses-only
         // CLI use a Chat-Completions-only provider (and vice versa).
         ...(model.apiProtocol ? { apiProtocol: model.apiProtocol } : {}),
+        // Only meaningful alongside a Responses choice, and the mapping ignores
+        // it otherwise, so it rides along with the protocol pick rather than
+        // being gated here — a model edited before this field existed has it
+        // unset, which is the same as off.
+        ...(model.responsesFallback ? { responsesFallback: true } : {}),
         ...(isRelayCapableApp ? { relayMode: effectiveRelay } : {}),
         ...(isClaudeApp ? { oneMContext: effective1m } : {}),
       });
