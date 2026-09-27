@@ -1,7 +1,11 @@
 //! Codex and ChatGPT launch support.
 //!
-//! Model traffic no longer passes through EchoBird: model application writes
-//! the provider's Responses endpoint directly to `~/.codex/config.toml`.
+//! Model traffic does still pass through EchoBird. Model application points
+//! `~/.codex/config.toml` at the protocol bridge, not at the provider: Codex
+//! sends the model label it remembers rather than the `model` in that file, so
+//! a config aimed straight at the provider sends a label the provider has no
+//! channel for and gets `503 no available channel for model gpt-5.5` back.
+//! The bridge pins the real id and converts the dialect as needed.
 
 mod codex_binary;
 mod config_manager;

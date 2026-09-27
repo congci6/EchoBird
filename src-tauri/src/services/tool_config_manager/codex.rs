@@ -161,25 +161,12 @@ fn codex_catalog_referenced(content: &str, our_path: &str) -> bool {
     !referenced.is_empty() && (referenced == our_path || referenced == "~/.codex/models.json")
 }
 
-/// How Codex should reach the selected model.
-enum CodexRoute {
-    /// The provider already serves the Responses API, so its URL is written
-    /// straight into `config.toml` and no proxy is involved.
-    Direct { base_url: String },
-    /// The provider speaks another dialect. EchoBird's bridge accepts the
-    /// Responses request Codex sends, translates it to what the provider
-    /// understands, and translates the answer back.
-    Bridge {
-        target: crate::services::protocol_bridge::BridgeTarget,
-    },
-}
-
 /// The dialect a provider serves natively, and the base URL that serves it.
 ///
 /// `selected` is the protocol the user chose in the model centre. When the
-/// model has a dedicated endpoint for that dialect it is used directly;
-/// otherwise the OpenAI-compatible base is treated as Chat Completions and the
-/// bridge does the translation.
+/// model has a dedicated endpoint for that dialect the bridge targets it
+/// there; otherwise the OpenAI-compatible base is treated as Chat Completions
+/// and the bridge does the translation.
 fn native_endpoint(
     model_info: &ModelInfo,
     base_url: &str,
@@ -210,29 +197,36 @@ fn native_endpoint(
     }
 }
 
-/// Decide how Codex reaches this model, starting the bridge when needed.
+/// Build the bridge target Codex reaches this model through.
 ///
 /// Codex only ever speaks the Responses API, so a provider serving any other
 /// dialect has to be reached through the bridge, which converts in both
-/// directions. The user picks the dialect; the bridge is the fallback.
+/// directions. The user picks the dialect.
 ///
-/// The no-choice default is Chat Completions over the bridge, NOT a direct
-/// Responses connection. That is deliberately the behaviour every EchoBird
-/// config had before the removed Responses-to-Chat proxy (`5d95bd2f`): with
-/// `relayMode` and `responsesPassthrough` both false, Codex talked to the
-/// local proxy and the proxy translated to Chat. Defaulting to a direct
-/// Responses connection instead broke every gateway that does not implement
-/// `/v1/responses` — such a gateway answers `503 no available channel` — while
-/// still looking like a working configuration. Nearly every OpenAI-compatible
-/// gateway serves Chat Completions, so the bridged default works everywhere
-/// and keeps the real model id flowing; a vendor that genuinely speaks
-/// Responses opts into the direct path by choosing `openai-responses`.
+/// There is deliberately no "write the provider's URL straight into
+/// `config.toml`" shortcut, not even for `openai-responses`. That shortcut is
+/// what produced `503 no available channel for model gpt-5.5`: Codex sends the
+/// label it remembers rather than the `model` in `config.toml`, so with no hop
+/// in between, the label went straight to a provider that only knows the real
+/// id. The hop is the fix, and it has to exist on every path. The `codex_proxy`
+/// removed in `5d95bd2f` was that hop — it rewrote `model` unconditionally,
+/// on the passthrough branch as well as the translating one, which is why
+/// nothing leaked while it existed. When the provider speaks Responses, the
+/// bridge forwards the body verbatim (`previous_response_id`, `store`,
+/// `include` and replayed reasoning items all survive) and still pins the id,
+/// so a Responses-native supplier keeps both its fidelity and its routing.
+///
+/// With no explicit choice the dialect is Chat Completions, the behaviour
+/// every EchoBird config had before `5d95bd2f` with `relayMode` and
+/// `responsesPassthrough` both false. Nearly every OpenAI-compatible gateway
+/// serves it, and a gateway that does not serve `/v1/responses` answers
+/// `503 no available channel` rather than anything useful.
 fn codex_route(
     model_info: &ModelInfo,
     base_url: &str,
     api_key: &str,
     model_id: &str,
-) -> CodexRoute {
+) -> crate::services::protocol_bridge::BridgeTarget {
     let selected = model_info
         .api_protocol
         .as_deref()
@@ -241,18 +235,11 @@ fn codex_route(
         // which is the bridge translating to Chat Completions.
         .unwrap_or(WireProtocol::OpenaiChat);
     let (native, native_base) = native_endpoint(model_info, base_url, selected);
-    if native == WireProtocol::OpenaiResponses {
-        return CodexRoute::Direct {
-            base_url: native_base,
-        };
-    }
-    CodexRoute::Bridge {
-        target: crate::services::protocol_bridge::BridgeTarget {
-            base_url: native_base,
-            api_key: api_key.to_string(),
-            model: model_id.to_string(),
-            protocol: native,
-        },
+    crate::services::protocol_bridge::BridgeTarget {
+        base_url: native_base,
+        api_key: api_key.to_string(),
+        model: model_id.to_string(),
+        protocol: native,
     }
 }
 pub(crate) fn apply_codex(tool_id: &str, model_info: &ModelInfo) -> ApplyResult {
@@ -361,13 +348,15 @@ pub(crate) fn apply_codex_at(
     // dialect has to be reached through EchoBird's bridge, which translates in
     // both directions. Everything below still keys off the REAL upstream URL so
     // vendor detection (catalog, web search) keeps working unchanged.
-    let codex_base_url = match codex_route(model_info, &base_url, api_key, model_id) {
-        CodexRoute::Direct { base_url } => base_url,
-        CodexRoute::Bridge { target } => {
-            crate::services::protocol_bridge::ensure_serving(target);
-            format!("{}/v1", crate::services::protocol_bridge::base_url())
-        }
-    };
+    // Every dialect goes through the local bridge, Responses included: that
+    // hop is what pins the model id before it can reach the provider.
+    crate::services::protocol_bridge::ensure_serving(codex_route(
+        model_info,
+        &base_url,
+        api_key,
+        model_id,
+    ));
+    let codex_base_url = format!("{}/v1", crate::services::protocol_bridge::base_url());
 
     let existing = fs::read_to_string(&config_path).unwrap_or_default();
     let mut new_content = write_codex_canonical_fields(
@@ -855,18 +844,16 @@ mod tests {
     /// heard of. This is the exact shape that produced the `gpt-5.5` 503 —
     /// the label `gpt-5.5` was sent while the real id was `space-bunny-free`.
     ///
-    /// Only `openai-responses` connects directly. Everything else, including
-    /// the no-choice default, is bridged: a gateway that does not implement
-    /// `/v1/responses` rejects a direct Responses call with that same 503, so
-    /// the default has to translate to Chat the way it always has.
+    /// Every dialect is bridged, `openai-responses` included. A direct
+    /// connection has no hop to pin the id, and the label is what Codex sends.
     #[test]
     fn codex_route_targets_the_real_model_id_not_the_display_name() {
-        for (protocol, expect_direct) in [
-            (None, false),
-            (Some("openai-responses"), true),
-            (Some("openai-chat"), false),
-            (Some("anthropic"), false),
-            (Some("gemini"), false),
+        for (protocol, expect_native) in [
+            (None, WireProtocol::OpenaiChat),
+            (Some("openai-responses"), WireProtocol::OpenaiResponses),
+            (Some("openai-chat"), WireProtocol::OpenaiChat),
+            (Some("anthropic"), WireProtocol::OpenaiChat),
+            (Some("gemini"), WireProtocol::OpenaiChat),
         ] {
             let model_info = info(
                 "gpt-5.5",
@@ -874,25 +861,19 @@ mod tests {
                 "https://api.example.com/v1",
                 protocol,
             );
-            match codex_route(
+            let target = codex_route(
                 &model_info,
                 "https://api.example.com/v1",
                 "test-key",
                 "space-bunny-free",
-            ) {
-                CodexRoute::Direct { base_url } => {
-                    assert!(expect_direct, "{protocol:?} should not be direct");
-                    assert_eq!(base_url, "https://api.example.com/v1");
-                }
-                CodexRoute::Bridge { target } => {
-                    assert!(!expect_direct, "{protocol:?} should be bridged");
-                    assert_eq!(
-                        target.model, "space-bunny-free",
-                        "{protocol:?} leaked the display name upstream"
-                    );
-                    assert_eq!(target.base_url, "https://api.example.com/v1");
-                }
-            }
+            );
+            assert_eq!(
+                target.model,
+                "space-bunny-free",
+                "{protocol:?} leaked the display name upstream"
+            );
+            assert_eq!(target.base_url, "https://api.example.com/v1");
+            assert_eq!(target.protocol, expect_native, "{protocol:?}");
         }
     }
 
@@ -908,25 +889,47 @@ mod tests {
             "https://api.example.com/v1",
             None,
         );
-        match codex_route(
+        let target = codex_route(
             &model_info,
             "https://api.example.com/v1",
             "test-key",
             "space-bunny-free",
-        ) {
-            CodexRoute::Bridge { target } => {
-                assert_eq!(
-                    target.protocol,
-                    WireProtocol::OpenaiChat,
-                    "the default must translate to Chat Completions"
-                );
-                assert_eq!(target.model, "space-bunny-free");
-                assert_eq!(target.base_url, "https://api.example.com/v1");
-            }
-            CodexRoute::Direct { base_url } => {
-                panic!("no explicit choice must not connect direct, got {base_url}");
-            }
-        }
+        );
+        assert_eq!(
+            target.protocol,
+            WireProtocol::OpenaiChat,
+            "the default must translate to Chat Completions"
+        );
+        assert_eq!(target.model, "space-bunny-free");
+        assert_eq!(target.base_url, "https://api.example.com/v1");
+    }
+
+    /// `openai-responses` used to mean "write the provider's URL into
+    /// `config.toml` and get out of the way". That left no hop to pin the
+    /// model id, and Codex sends its remembered label, so the provider saw
+    /// `gpt-5.5` and answered `503 no available channel`. The Responses dialect
+    /// must still be routed, so the bridge can pin the id and forward the body
+    /// verbatim.
+    #[test]
+    fn responses_choice_still_routes_through_the_bridge() {
+        let model_info = info(
+            "gpt-5.5",
+            "space-bunny-free",
+            "https://api.example.com/v1",
+            Some("openai-responses"),
+        );
+        let target = codex_route(
+            &model_info,
+            "https://api.example.com/v1",
+            "test-key",
+            "space-bunny-free",
+        );
+        assert_eq!(target.protocol, WireProtocol::OpenaiResponses);
+        assert_eq!(
+            target.model, "space-bunny-free",
+            "the direct path is what leaked the label to the provider"
+        );
+        assert_eq!(target.base_url, "https://api.example.com/v1");
     }
 
     /// The label must not survive anywhere in the file Codex reads. This is

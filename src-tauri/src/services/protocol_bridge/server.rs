@@ -129,6 +129,17 @@ async fn bridge(
         );
     };
 
+    // Responses on both sides needs no translation, but it still needs the
+    // model pinned. The canonical round-trip cannot carry this case at all:
+    // `CanonicalRequest` has no `previous_response_id`, `store`, `include` or
+    // replayed-reasoning fields, so re-encoding would drop exactly the state
+    // Codex depends on. Forward the body verbatim and touch only `model`.
+    if client_protocol == WireProtocol::OpenaiResponses
+        && target.protocol == WireProtocol::OpenaiResponses
+    {
+        return responses_passthrough(state, target, body).await;
+    }
+
     let request = match protocol::parse_request(client_protocol, &body, path_model.as_deref()) {
         Ok(request) => request,
         Err(message) => {
@@ -284,6 +295,197 @@ where
 }
 
 // ─── Upstream addressing ───
+
+/// Forward a Responses request to a Responses provider without translating it.
+///
+/// The provider already speaks the dialect, so the body goes out exactly as the
+/// client wrote it. That is the whole point: it is what preserves
+/// `previous_response_id`, `store`, `include` and replayed reasoning items,
+/// every one of which a canonical round-trip would flatten. The single field
+/// that must not survive is the client's own model id — Codex remembers the
+/// label it last showed and sends that instead of the one in `config.toml`, so
+/// `model` is pinned to the configured id outbound and swapped back inbound.
+/// That swap is why this hop exists at all: the old `codex_proxy` did it, and
+/// dropping the hop in `5d95bd2f` is what let `gpt-5.5` reach a provider that
+/// only knows the real id and answer `503 no available channel`.
+async fn responses_passthrough(
+    state: BridgeState,
+    target: BridgeTarget,
+    body: Value,
+) -> Response {
+    let client_model = body
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let streaming = body
+        .get("stream")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut outgoing = body;
+    if !target.model.trim().is_empty() && outgoing.is_object() {
+        outgoing["model"] = Value::String(target.model.clone());
+    }
+
+    let url = upstream_url(&target, streaming);
+    let mut outgoing = state
+        .http_client
+        .post(&url)
+        .json(&outgoing)
+        .header(header::CONTENT_TYPE, "application/json");
+    if streaming {
+        outgoing = outgoing.header(header::ACCEPT, "text/event-stream");
+    }
+    let outgoing = apply_auth(outgoing, target.protocol, &target.api_key);
+
+    let response = match outgoing.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            return protocol_error(
+                WireProtocol::OpenaiResponses,
+                StatusCode::BAD_GATEWAY,
+                &format!("upstream request failed: {error}"),
+            );
+        }
+    };
+
+    let status = response.status();
+    if !status.is_success() {
+        let text = response.text().await.unwrap_or_default();
+        return forward_error(WireProtocol::OpenaiResponses, status, &text);
+    }
+
+    if streaming {
+        return stream_passthrough(response, client_model);
+    }
+    non_stream_passthrough(response, client_model).await
+}
+
+/// Hand back the provider's Responses JSON with only `model` swapped for the
+/// id the client used, so Codex keeps seeing the model it asked for.
+async fn non_stream_passthrough(
+    upstream: reqwest::Response,
+    client_model: Option<String>,
+) -> Response {
+    let text = match upstream.text().await {
+        Ok(text) => text,
+        Err(error) => {
+            return protocol_error(
+                WireProtocol::OpenaiResponses,
+                StatusCode::BAD_GATEWAY,
+                &format!("upstream returned an unreadable body: {error}"),
+            );
+        }
+    };
+    // A 2xx that is not JSON is passed through untouched rather than masked;
+    // the model swap is best-effort by design.
+    let Ok(mut payload) = serde_json::from_str::<Value>(&text) else {
+        return (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "application/json")],
+            text,
+        )
+            .into_response();
+    };
+    if let Some(client) = client_model.as_deref() {
+        swap_model_to_client(&mut payload, client);
+    }
+    (StatusCode::OK, Json(payload)).into_response()
+}
+
+/// Force `model` and `response.model` — when present and string-typed — to
+/// `client`. The provider echoes the real id back; Codex must never see it.
+fn swap_model_to_client(payload: &mut Value, client: &str) -> bool {
+    let mut changed = false;
+    if let Some(model) = payload.get_mut("model") {
+        if model.is_string() && model.as_str() != Some(client) {
+            *model = Value::String(client.to_string());
+            changed = true;
+        }
+    }
+    if let Some(nested) = payload.get_mut("response") {
+        if let Some(model) = nested.get_mut("model") {
+            if model.is_string() && model.as_str() != Some(client) {
+                *model = Value::String(client.to_string());
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Rewrite the model id inside one SSE line. `event:` lines, blank separators
+/// and `data: [DONE]` pass through unchanged; the result is always
+/// `\n`-terminated so the SSE framing stays intact.
+fn rewrite_sse_model_line(line: &str, client_model: Option<&str>) -> String {
+    let Some(client) = client_model else {
+        return line.to_string();
+    };
+    let content = line.trim_end_matches(['\r', '\n']);
+    let Some(rest) = content.strip_prefix("data:") else {
+        return line.to_string();
+    };
+    let payload = rest.trim_start();
+    if payload.is_empty() || payload == "[DONE]" {
+        return line.to_string();
+    }
+    let Ok(mut value) = serde_json::from_str::<Value>(payload) else {
+        return line.to_string();
+    };
+    if !swap_model_to_client(&mut value, client) {
+        return line.to_string();
+    }
+    format!("data: {value}\n")
+}
+
+/// Relay a Responses SSE stream verbatim, rewriting only the model id.
+///
+/// Bytes are cut only at newlines, which is what makes this safe without a
+/// separate UTF-8 carry buffer: `\n` is ASCII, so a complete line can never
+/// contain half a codepoint, and a multi-byte sequence split across two TCP
+/// chunks simply stays in `pending` until its line finishes.
+fn stream_passthrough(upstream: reqwest::Response, client_model: Option<String>) -> Response {
+    let mut source = upstream.bytes_stream();
+    let (sender, receiver) =
+        tokio::sync::mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(32);
+
+    tokio::spawn(async move {
+        let mut pending: Vec<u8> = Vec::new();
+        while let Some(item) = source.next().await {
+            let chunk = match item {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    let _ = sender.send(Err(std::io::Error::other(error))).await;
+                    return;
+                }
+            };
+            pending.extend_from_slice(&chunk);
+            while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+                let line: Vec<u8> = pending.drain(..=newline).collect();
+                let out = match std::str::from_utf8(&line) {
+                    Ok(text) => axum::body::Bytes::from(rewrite_sse_model_line(
+                        text,
+                        client_model.as_deref(),
+                    )),
+                    // Not valid UTF-8 at a line boundary: hand it over as-is
+                    // rather than corrupting it.
+                    Err(_) => axum::body::Bytes::from(line),
+                };
+                if sender.send(Ok(out)).await.is_err() {
+                    return;
+                }
+            }
+        }
+        if !pending.is_empty() {
+            let _ = sender.send(Ok(axum::body::Bytes::from(pending))).await;
+        }
+    });
+
+    let stream = futures_util::stream::unfold(receiver, |mut receiver| async move {
+        receiver.recv().await.map(|item| (item, receiver))
+    });
+    sse_response(stream)
+}
 
 /// Build the upstream URL for a target.
 ///
@@ -656,5 +858,60 @@ mod tests {
         });
         let response = count_tokens_locally(&body);
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// The provider echoes the real id back on both the top level and the
+    /// nested `response` object. Codex must never see either.
+    #[test]
+    fn model_swap_covers_both_places_and_leaves_other_shapes_alone() {
+        let mut payload = json!({
+            "model": "space-bunny-free",
+            "response": {"model": "space-bunny-free", "id": "resp_1"},
+            "count": 3
+        });
+        assert!(swap_model_to_client(&mut payload, "gpt-5.5"));
+        assert_eq!(payload["model"], json!("gpt-5.5"));
+        assert_eq!(payload["response"]["model"], json!("gpt-5.5"));
+        assert_eq!(payload["response"]["id"], json!("resp_1"));
+        assert_eq!(payload["count"], json!(3));
+        // Already the client's own id: nothing to do, and it must report so
+        // the SSE path can pass the original line through byte-for-byte.
+        assert!(!swap_model_to_client(&mut payload, "gpt-5.5"));
+
+        let mut odd = json!({"model": {"nested": true}, "response": "not-an-object"});
+        assert!(!swap_model_to_client(&mut odd, "gpt-5.5"));
+        assert_eq!(odd["model"], json!({"nested": true}));
+        assert_eq!(odd["response"], json!("not-an-object"));
+    }
+
+    /// Only `data:` lines carrying a JSON object may be touched. Everything
+    /// else has to survive byte-for-byte or the SSE framing breaks.
+    #[test]
+    fn sse_rewrite_only_touches_data_lines() {
+        assert_eq!(
+            rewrite_sse_model_line("event: response.created\n", Some("gpt-5.5")),
+            "event: response.created\n"
+        );
+        assert_eq!(
+            rewrite_sse_model_line("data: [DONE]\n", Some("gpt-5.5")),
+            "data: [DONE]\n"
+        );
+        assert_eq!(
+            rewrite_sse_model_line("\n", Some("gpt-5.5")),
+            "\n"
+        );
+        assert_eq!(
+            rewrite_sse_model_line("data: not json\n", Some("gpt-5.5")),
+            "data: not json\n"
+        );
+        // No client model means no rewriting at all.
+        assert_eq!(
+            rewrite_sse_model_line("data: {\"model\":\"x\"}\n", None),
+            "data: {\"model\":\"x\"}\n"
+        );
+        assert_eq!(
+            rewrite_sse_model_line("data: {\"model\":\"real\"}\n", Some("gpt-5.5")),
+            "data: {\"model\":\"gpt-5.5\"}\n"
+        );
     }
 }
