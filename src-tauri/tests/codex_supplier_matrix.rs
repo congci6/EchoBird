@@ -61,7 +61,9 @@ fn admit(seen: &Seen, model: &str) -> Option<Response> {
 }
 
 fn model_of(body: &Value) -> &str {
-    body.get("model").and_then(Value::as_str).unwrap_or_default()
+    body.get("model")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
 }
 
 async fn chat(State(seen): State<Seen>, Json(body): Json<Value>) -> Response {
@@ -128,7 +130,11 @@ async fn gemini(
     Path(model_action): Path<String>,
     Json(body): Json<Value>,
 ) -> Response {
-    let model = model_action.split(':').next().unwrap_or_default().to_string();
+    let model = model_action
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_string();
     let _ = body;
     if let Some(refused) = admit(&seen, &model) {
         return refused;
@@ -150,7 +156,9 @@ async fn gemini(
 }
 
 async fn serve(app: Router) -> SocketAddr {
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     addr
@@ -264,8 +272,7 @@ async fn codex_reaches_a_supplier_speaking_any_of_the_four_dialects() {
             "{dialect:?}: the label reached the supplier"
         );
         assert_eq!(
-            status,
-            200,
+            status, 200,
             "{dialect:?}: Codex got {status} instead of an answer: {text}"
         );
         let body: Value = serde_json::from_str(&text).expect("a Responses body");

@@ -308,19 +308,12 @@ where
 /// That swap is why this hop exists at all: the old `codex_proxy` did it, and
 /// dropping the hop in `5d95bd2f` is what let `gpt-5.5` reach a provider that
 /// only knows the real id and answer `503 no available channel`.
-async fn responses_passthrough(
-    state: BridgeState,
-    target: BridgeTarget,
-    body: Value,
-) -> Response {
+async fn responses_passthrough(state: BridgeState, target: BridgeTarget, body: Value) -> Response {
     let client_model = body
         .get("model")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let streaming = body
-        .get("stream")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
 
     let mut outgoing = body;
     if !target.model.trim().is_empty() && outgoing.is_object() {
@@ -896,10 +889,7 @@ mod tests {
             rewrite_sse_model_line("data: [DONE]\n", Some("gpt-5.5")),
             "data: [DONE]\n"
         );
-        assert_eq!(
-            rewrite_sse_model_line("\n", Some("gpt-5.5")),
-            "\n"
-        );
+        assert_eq!(rewrite_sse_model_line("\n", Some("gpt-5.5")), "\n");
         assert_eq!(
             rewrite_sse_model_line("data: not json\n", Some("gpt-5.5")),
             "data: not json\n"
