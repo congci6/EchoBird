@@ -292,6 +292,7 @@ fn read_zcode_personal_config(path: &std::path::Path) -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }
 
@@ -335,6 +336,7 @@ pub(super) fn read_zcode() -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }
 

@@ -81,6 +81,20 @@ pub struct ModelInfo {
     /// existed relies on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_protocol: Option<String>,
+    /// Responses only. Set when the provider is known NOT to serve
+    /// `/v1/responses`, which is a common shape for OpenAI-compatible gateways
+    /// — they answer `not implemented` rather than `404`, so nothing before the
+    /// request can reveal it.
+    ///
+    /// A Responses choice is otherwise taken at face value, because the
+    /// canonical round trip has no room for `previous_response_id`, `store` or
+    /// `include` and a supplier that does serve Responses would silently lose
+    /// exactly the state Codex depends on. Turning this on degrades the choice
+    /// to Chat Completions, so the bridge translates instead. It affects no
+    /// other protocol, and absent means "off", so every config written before
+    /// the switch existed keeps its behaviour.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub responses_fallback: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_model: Option<String>,
     /// Claude Desktop / Claude Code only. Connect directly to the selected
@@ -960,6 +974,72 @@ mod tests {
             display_model: None,
             relay_mode: None,
             one_m_context: None,
+            responses_fallback: None,
+        }
+    }
+
+    fn routing_model_with_fallback(protocol: Option<&str>, fallback: Option<bool>) -> ModelInfo {
+        ModelInfo {
+            responses_fallback: fallback,
+            ..routing_model(protocol)
+        }
+    }
+
+    /// Responses is the one dialect that cannot be verified up front: unlike
+    /// Anthropic there is no `responses_url` to consult, and unlike Gemini the
+    /// path shape is not distinctive, so the default is to take the provider at
+    /// face value. That is right for a supplier that really serves
+    /// `/v1/responses` — going through the canonical form would drop
+    /// `previous_response_id`, `store` and `include` — and wrong for one that
+    /// answers `not implemented`, which is a real and common shape for
+    /// OpenAI-compatible gateways.
+    ///
+    /// The switch is how a user resolves that without EchoBird guessing: set
+    /// it when the provider is known not to serve Responses, and the choice
+    /// degrades to Chat Completions the same way an unconfigured Anthropic or
+    /// Gemini choice does.
+    #[test]
+    fn the_responses_fallback_switch_degrades_a_responses_choice_to_chat() {
+        let info = routing_model_with_fallback(Some("openai-responses"), Some(true));
+        let target = resolved_target(&info).expect("resolvable");
+        assert_eq!(
+            target.protocol,
+            WireProtocol::OpenaiChat,
+            "with the switch on, a Responses choice must degrade to Chat"
+        );
+        assert_eq!(target.base_url, "https://provider.example/v1");
+    }
+
+    /// The switch is scoped to Responses. Turning it on must not change what
+    /// any other choice resolves to, or a user leaving it on would silently
+    /// downgrade a provider that does serve Responses properly.
+    #[test]
+    fn the_responses_fallback_switch_does_not_touch_other_protocols() {
+        for picked in ["openai-chat", "anthropic", "gemini"] {
+            let info = routing_model_with_fallback(Some(picked), Some(true));
+            let target = resolved_target(&info).expect("resolvable");
+            assert_eq!(
+                target.protocol,
+                resolved_target(&routing_model(Some(picked)))
+                    .expect("resolvable")
+                    .protocol,
+                "{picked} must be unaffected by the Responses switch"
+            );
+        }
+    }
+
+    /// Off and absent both mean "take the provider at face value", so a config
+    /// written before the switch existed keeps behaving exactly as it did.
+    #[test]
+    fn the_responses_fallback_switch_defaults_to_face_value() {
+        for fallback in [None, Some(false)] {
+            let info = routing_model_with_fallback(Some("openai-responses"), fallback);
+            let target = resolved_target(&info).expect("resolvable");
+            assert_eq!(
+                target.protocol,
+                WireProtocol::OpenaiResponses,
+                "fallback={fallback:?} must keep Responses direct"
+            );
         }
     }
 

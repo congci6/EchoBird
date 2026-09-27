@@ -14,6 +14,7 @@ export async function addModel(input: {
   modelId?: string;
   scope?: 'modelCenter' | 'smartRouter';
   apiProtocol?: string;
+  responsesFallback?: boolean;
 }): Promise<ModelConfig> {
   const result = await invoke<ModelConfig>('add_model', { input });
   window.dispatchEvent(new Event('models-changed'));
@@ -35,6 +36,7 @@ export async function updateModel(
     anthropicUrl?: string;
     modelId?: string;
     apiProtocol?: string;
+    responsesFallback?: boolean;
   }
 ): Promise<ModelConfig | null> {
   const result = await invoke<ModelConfig | null>('update_model', { internalId, updates });

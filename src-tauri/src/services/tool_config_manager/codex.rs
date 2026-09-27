@@ -202,8 +202,20 @@ pub fn native_endpoint(
         // OpenAI-compatible gateway serves, so an unverified Gemini choice
         // degrades to it and the bridge converts.
         WireProtocol::GeminiGenerateContent => (WireProtocol::OpenaiChat, base_url.to_string()),
-        WireProtocol::OpenaiChat | WireProtocol::OpenaiResponses => {
-            (selected, base_url.to_string())
+        WireProtocol::OpenaiChat => (WireProtocol::OpenaiChat, base_url.to_string()),
+        // Responses is the one dialect that cannot be checked before the
+        // request: no `responses_url` to consult, and the path is not
+        // distinctive. So it is taken at face value by default — the canonical
+        // round trip cannot carry `previous_response_id`, `store` or `include`,
+        // and a supplier that really serves Responses would lose exactly the
+        // state Codex depends on. A provider known to answer `not implemented`
+        // is the exception, and the user says so explicitly.
+        WireProtocol::OpenaiResponses => {
+            if model_info.responses_fallback == Some(true) {
+                (WireProtocol::OpenaiChat, base_url.to_string())
+            } else {
+                (WireProtocol::OpenaiResponses, base_url.to_string())
+            }
         }
     }
 }
@@ -526,6 +538,7 @@ pub(super) fn read_codex() -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }
 
@@ -842,6 +855,7 @@ mod tests {
             display_model: None,
             relay_mode: None,
             one_m_context: None,
+            responses_fallback: None,
         }
     }
 

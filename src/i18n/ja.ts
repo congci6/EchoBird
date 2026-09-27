@@ -221,6 +221,9 @@ const ja: Partial<Translations> = {
   'model.apiProtocolGemini': 'generateContent',
   'model.apiProtocolGeminiHint':
     'Gemini generateContent。プロバイダーが別のプロトコルのみ対応でも利用できます。',
+  'model.responsesFallback': 'プロバイダーが Responses に非対応',
+  'model.responsesFallbackHint':
+    '/v1/responses が「not implemented」を返す場合、Chat Completions に変換します。',
   'model.invalidOpenaiUrl': '有効な OpenAI URL を入力してください。',
   'model.editConfig': 'モデル設定を編集',
   'model.deleteTitle': 'モデルを削除',

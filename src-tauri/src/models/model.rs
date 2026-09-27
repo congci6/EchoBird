@@ -45,6 +45,15 @@ pub struct ModelConfig {
     /// `WireProtocol::as_str` names.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_protocol: Option<String>,
+    /// Responses only. Set when the provider is known NOT to serve
+    /// `/v1/responses` — a common shape for OpenAI-compatible gateways, which
+    /// answer `not implemented` rather than `404` so nothing before the request
+    /// can reveal it. A Responses protocol choice is otherwise taken at face
+    /// value, because translating it would drop `previous_response_id`, `store`
+    /// and `include`. Turning this on degrades the choice to Chat Completions
+    /// so the bridge converts instead. Absent means off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub responses_fallback: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "type")]
     pub model_type: Option<ModelType>,
@@ -87,6 +96,7 @@ mod tests {
             api_key: "key".to_string(),
             anthropic_url: None,
             api_protocol: None,
+            responses_fallback: None,
             model_type: Some(ModelType::Cloud),
             openai_tested: None,
             anthropic_tested: None,

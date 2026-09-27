@@ -43,6 +43,9 @@ export interface ModelConfig {
   /** Wire protocol the user picked for this model. Absent = let each tool use
    *  the dialect it speaks natively. */
   apiProtocol?: string;
+  /** Degrade a Responses protocol choice to Chat Completions, for providers
+   *  that answer `not implemented` on /v1/responses. */
+  responsesFallback?: boolean;
   modelType?: 'CLOUD' | 'LOCAL' | 'TUNNEL' | 'DEMO';
   openaiTested?: boolean;
   anthropicTested?: boolean;

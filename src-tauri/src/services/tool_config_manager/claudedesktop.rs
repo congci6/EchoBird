@@ -387,5 +387,6 @@ pub(super) fn read_claudedesktop() -> Option<ModelInfo> {
         display_model: None,
         relay_mode: None,
         one_m_context: None,
+        responses_fallback: None,
     })
 }

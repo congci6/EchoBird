@@ -118,6 +118,7 @@ export function ModelNexusProvider({ children }: { children: React.ReactNode }) 
     apiKey: '',
     modelId: '',
     apiProtocol: '',
+    responsesFallback: false,
   });
 
   const closeModelModal = useCallback(() => {
@@ -175,6 +176,7 @@ export function ModelNexusProvider({ children }: { children: React.ReactNode }) 
         apiKey: freshModel.apiKey,
         modelId: freshModel.modelId || '',
         apiProtocol: freshModel.apiProtocol || '',
+        responsesFallback: freshModel.responsesFallback ?? false,
       });
       setShowAddModelModal(true);
     },
@@ -932,6 +934,7 @@ export function ModelNexusMain() {
                       apiKey: '',
                       modelId: '',
                       apiProtocol: '',
+                      responsesFallback: false,
                     });
                     setEditingModelId(null);
                     setShowAddModelModal(true);
@@ -1139,6 +1142,7 @@ export function ModelNexusPanel() {
         modelId: entry.modelId || options[0] || '',
         modelIdOptions: options,
         apiProtocol: '',
+        responsesFallback: false,
       });
       setEditingModelId(null);
       setShowAddModelModal(true);
@@ -1382,6 +1386,35 @@ export function AddModelModal() {
                   ).hint
                 )}
               </p>
+              {/* Responses is the one dialect that cannot be verified before the
+                  request: unlike Anthropic there is no second URL to consult,
+                  and unlike Gemini the path is not distinctive, so it is taken at
+                  face value — a supplier that really serves it would lose
+                  `previous_response_id` / `store` / `include` to a translation.
+                  A provider answering `not implemented` is a common shape, and
+                  only the user knows which one they have, so the escape hatch is
+                  a switch rather than a guess. */}
+              {newModelForm.apiProtocol === 'openai-responses' && (
+                <label className="mt-2 flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newModelForm.responsesFallback}
+                    onChange={(e) =>
+                      setNewModelForm((prev) => ({
+                        ...prev,
+                        responsesFallback: e.target.checked,
+                      }))
+                    }
+                    className="mt-0.5 accent-cyber-text"
+                  />
+                  <span className="text-[11px] leading-snug text-cyber-text-secondary">
+                    {t('model.responsesFallback')}
+                    <span className="block text-[10px] opacity-80">
+                      {t('model.responsesFallbackHint')}
+                    </span>
+                  </span>
+                </label>
+              )}
             </div>
             <div>
               <label className="block text-xs text-cyber-text-secondary mb-1">
@@ -1520,6 +1553,7 @@ export function AddModelModal() {
                     apiKey: newModelForm.apiKey,
                     modelId: newModelForm.modelId,
                     apiProtocol: newModelForm.apiProtocol,
+                    responsesFallback: newModelForm.responsesFallback,
                   });
                   if (updatedModel) {
                     updateSelectedModel({
@@ -1541,6 +1575,7 @@ export function AddModelModal() {
                     modelId: newModelForm.modelId,
                     scope: modelModalDestination === 'freeRouter' ? 'smartRouter' : 'modelCenter',
                     apiProtocol: newModelForm.apiProtocol || undefined,
+                    responsesFallback: newModelForm.responsesFallback || undefined,
                   });
                   if (modelModalDestination === 'freeRouter') {
                     try {
@@ -1569,6 +1604,7 @@ export function AddModelModal() {
                   apiKey: '',
                   modelId: '',
                   apiProtocol: '',
+                  responsesFallback: false,
                 });
                 setShowAddModelModal(false);
                 setModelModalDestination('modelNexus');

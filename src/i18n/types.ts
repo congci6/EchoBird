@@ -149,6 +149,8 @@ export type TKey =
   | 'model.apiProtocolAnthropicHint'
   | 'model.apiProtocolGemini'
   | 'model.apiProtocolGeminiHint'
+  | 'model.responsesFallback'
+  | 'model.responsesFallbackHint'
   | 'model.invalidOpenaiUrl'
   | 'model.editConfig'
   | 'model.deleteTitle'
