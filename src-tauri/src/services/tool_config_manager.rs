@@ -4,7 +4,7 @@
 mod aider;
 mod claudecode;
 mod claudedesktop;
-mod codex;
+pub mod codex;
 pub(crate) mod dsh;
 mod generic;
 mod grok;
@@ -134,10 +134,31 @@ fn echobird_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_default().join(".echobird")
 }
 
+/// Create `path`'s parent directory if it is missing, tolerating a home
+/// directory Windows will not let us walk.
+///
+/// `Path::exists()` and `fs::create_dir_all()` both *walk* every component of
+/// the path. A Windows user whose `%USERPROFILE%` is a junction — a
+/// OneDrive-backed profile, a relocated `C:\Users`, an `mklink /J` home — gets
+/// `ERROR_UNTRUSTED_MOUNT_POINT` (os error 448,
+/// "cannot traverse the path because it contains an untrusted mount point")
+/// from both, and an apply that creates `~/.codex` would fail before it wrote
+/// anything.
+///
+/// `fs::create_dir` is the operation that does not walk: the OS resolves the
+/// parent itself and fails only if the *immediate* parent is genuinely
+/// missing, which is the one case we do need to create. A best-effort
+/// `create_dir_all` covers a deeper gap, and both results are ignored —
+/// `fs::write` on the leaf is the call that ultimately decides success or
+/// failure, and its error message is one the user can act on.
 fn ensure_parent(path: &Path) {
     if let Some(parent) = path.parent() {
-        if !parent.exists() {
-            let _ = fs::create_dir_all(parent);
+        if let Err(error) = fs::create_dir(parent) {
+            // `AlreadyExists` is the expected outcome; anything else means the
+            // parent chain has a real gap, so try the recursive form once.
+            if error.kind() != std::io::ErrorKind::AlreadyExists {
+                let _ = fs::create_dir_all(parent);
+            }
         }
     }
 }
