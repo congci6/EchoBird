@@ -285,7 +285,27 @@ fn parse_openai_responses(body: &Value) -> Result<CanonicalRequest, String> {
         });
     }
 
-    for item in array_at(body, "input") {
+    // `input` is a string, an array of strings, or an array of items. Only the
+    // last was read, and it is the one real clients use least: Codex, the
+    // OpenAI SDKs and most HTTP callers send a bare string for a single-turn
+    // prompt, and that shorthand was dropped on the floor, leaving the supplier
+    // to be asked to answer `messages: []`.
+    match body.get("input") {
+        Some(Value::String(text)) if !text.is_empty() => {
+            request.messages.push(CanonicalMessage::user_text(text));
+        }
+        _ => {}
+    }
+
+    for item in responses_input_items(body.get("input")) {
+        // A bare string element is the text of a user turn, not an object to
+        // read `role`/`content` from.
+        if let Some(text) = item.as_str() {
+            if !text.is_empty() {
+                request.messages.push(CanonicalMessage::user_text(text));
+            }
+            continue;
+        }
         let item_type = item.get("type").and_then(Value::as_str);
         match item_type {
             Some("function_call") => {
@@ -767,6 +787,20 @@ fn parse_gemini(body: &Value, path_model: Option<&str>) -> Result<CanonicalReque
 
 fn string_at(value: &Value, key: &str) -> Option<String> {
     value.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+/// The items of a Responses `input`, which may be an array or a bare string.
+///
+/// A bare string is not an item list — it is one user turn — so it is returned
+/// as a single-element slice and the caller turns it into a message. Anything
+/// that is neither an array nor a string yields nothing, so a malformed `input`
+/// produces an empty conversation rather than a panic.
+fn responses_input_items(input: Option<&Value>) -> Vec<&Value> {
+    match input {
+        Some(Value::Array(items)) => items.iter().collect(),
+        Some(Value::String(_)) => Vec::new(),
+        _ => Vec::new(),
+    }
 }
 
 fn array_at<'a>(value: &'a Value, key: &str) -> &'a [Value] {

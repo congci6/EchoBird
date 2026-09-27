@@ -79,7 +79,17 @@ fn encode_openai_chat(request: &CanonicalRequest) -> Value {
                 }
             }
             if !joined.is_empty() {
-                messages.push(chat_user_content(&joined, &message.content));
+                // The whole message, not just its content: pushing
+                // `chat_user_content`'s return value directly put a bare string
+                // where Chat Completions expects `{role, content}`, so every
+                // supplier that validates the shape answered 500.
+                let mut user = Map::new();
+                user.insert("role".to_string(), json!("user"));
+                user.insert(
+                    "content".to_string(),
+                    chat_user_content(&joined, &message.content),
+                );
+                messages.push(Value::Object(user));
             }
         } else {
             let mut assistant = Map::new();
