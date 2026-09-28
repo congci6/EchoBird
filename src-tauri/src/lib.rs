@@ -151,7 +151,6 @@ static BUNDLED: BundledAssets = BundledAssets {
             "zcode",
             include_str!("../../docs/api/tools/install/zcode.json"),
         ),
-        ("dsh", include_str!("../../docs/api/tools/install/dsh.json")),
     ],
 };
 
@@ -1096,13 +1095,6 @@ pub fn run() {
             tool_commands::switch_claude_code_account,
             tool_commands::refresh_claude_code_account_quota,
             tool_commands::delete_claude_code_account,
-            tool_commands::list_deepseek_accounts,
-            tool_commands::start_deepseek_login,
-            tool_commands::poll_deepseek_login,
-            tool_commands::cancel_deepseek_login,
-            tool_commands::switch_deepseek_account,
-            tool_commands::refresh_deepseek_account_quota,
-            tool_commands::delete_deepseek_account,
             tool_commands::start_grok_login,
             tool_commands::poll_grok_login,
             tool_commands::cancel_grok_login,
