@@ -524,6 +524,16 @@ html.is-macos .page-scroll::-webkit-scrollbar {
   background-color: rgb(20 92 73 / 0.22);
 }
 
+[data-theme='light'] .deepseek-account-pill {
+  background-color: #dce4ff;
+  color: #29458f;
+}
+
+[data-theme='dark'] .deepseek-account-pill {
+  background-color: #304a9b;
+  color: #ffffff;
+}
+
 .account-pill .account-icon-button {
   color: currentColor;
   opacity: 0.72;
