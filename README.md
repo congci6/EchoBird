@@ -2,7 +2,7 @@
   <img src="docs/icon.png" alt="EchoBird" width="140" />
 </p>
 
-<h1 align="center">EchoBird</h1>
+<h1 align="center">EchoBird by congci</h1>
 
 <p align="center"><strong>ChatGPT、Codex CLI、Claude Code 多账号切换</strong> · 多模型智能路由与故障自动切换 · AI 工具一键安装</p>
 
@@ -212,6 +212,6 @@ gh release download --repo congci6/EchoBird --pattern "*Windows_x64.msi"
 ---
 
 <p align="center">
-  Made with 💚 by EchoBird Team<br>
+  Made with 💚 by congci<br>
   <sub>⭐ <a href="https://github.com/congci6/EchoBird">在 GitHub 上点个 Star</a></sub>
 </p>
