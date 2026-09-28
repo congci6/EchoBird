@@ -196,7 +196,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
   // open the download page in the browser instead.
   const handleUpdate = useCallback(async () => {
     if (!latestVersion) return;
-    const downloadPage = 'https://echobird.ai/';
+    const downloadPage = 'https://github.com/congci6/EchoBird/releases/latest';
     if (!navigator.userAgent.includes('Windows')) {
       await api.openExternal(downloadPage);
       return;
@@ -274,7 +274,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({
             </div>
             <button
               type="button"
-              onClick={() => api.openExternal('https://echobird.ai')}
+              onClick={() => api.openExternal('https://github.com/congci6/EchoBird')}
               className="flex items-center gap-1.5 text-[13px] font-medium text-cyber-text-secondary transition-colors hover:text-cyber-text"
             >
               EchoBird <ExternalLink size={12} />
