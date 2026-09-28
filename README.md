@@ -20,54 +20,6 @@
   <a href="https://github.com/congci6/EchoBird/releases/latest">下载</a>
 </p>
 
-> **说明** —— 本仓库同时是官方代码仓库、下载渠道与 issue 反馈渠道。
-> 应用内的自动更新版本清单、模型目录等在线接口仍由官方站点提供。
-
----
-
-## 💜 赞助商
-
-<table>
-  <tr>
-    <td width="150" align="center">
-      <a href="https://go.apimart.ai/gh-echobird"><img src="docs/sponsors/apimart.png" width="140" alt="APIMart" /></a>
-    </td>
-    <td>
-      <a href="https://go.apimart.ai/gh-echobird"><strong>APIMart</strong></a><br/>
-      感谢 <strong>APIMart</strong> 赞助了本项目!APIMart 是专注 AI 图片/视频生成的低价 API 平台,GPT-Image-2 低至 $0.006/张,1 美元可出图 160+ 张。图片、视频一套异步 API 通吃,提交任务拿 ID、回调取结果,跑批万张不超时、换模型不改代码。按量付费、无月费,通过<a href="https://go.apimart.ai/gh-echobird">此链接</a>注册即可开用。
-    </td>
-  </tr>
-  <tr>
-    <td width="150" align="center">
-      <a href="https://88api.ai/sign-up?aff=knFS"><img src="docs/sponsors/88api.png" width="92" alt="88API Token聚合平台" /></a>
-    </td>
-    <td>
-      <a href="https://88api.ai/sign-up?aff=knFS"><strong>88API Token聚合平台</strong></a><br/>
-      感谢 <strong>88API</strong> 赞助了本项目!88API 是一站式 Token 聚合平台:一个 API Key 即可稳定接入 GPT、Claude、Gemini、Grok、DeepSeek、Kimi、GLM 等语言与编程模型,以及 GPT-Image、Gemini、Grok 等图片模型,Seedance、Veo、MiniMax Hailuo H3、Kling 等视频模型和 Whisper、TTS 等语音能力,从文案、出图、改图到视频生成与配音全覆盖。新用户注册送体验额度,可先检测模型能力;站内有人工客服值守。海外企业资质运营、稳定不跑路,支持正规发票,充值比例 1:1。
-    </td>
-  </tr>
-  <tr>
-    <td width="150" align="center">
-      <a href="https://grooroute.com/register?aff=FWGVPMYENJQ8"><img src="docs/sponsors/grooroute.png" width="92" alt="GrooRoute" /></a>
-    </td>
-    <td>
-      <a href="https://grooroute.com/register?aff=FWGVPMYENJQ8"><strong>GrooRoute</strong></a> — Claude 与 GPT 官方原模型<br/>
-      感谢 <strong>GrooRoute</strong> 赞助了本项目!现已开放 Claude 与 GPT 官方原模型。我们邀请每一个有好奇心的人，用上最先进的智能。国内直连，即开即用——一行配置，接入 Fable 5、GPT-5.6 在内的前沿模型。通过<a href="https://grooroute.com/register?aff=FWGVPMYENJQ8">此链接</a>注册即可开用。
-    </td>
-  </tr>
-  <tr>
-    <td width="150" align="center">
-      <a href="https://fluxionai.space/register?source=github&amp;campaign=github-echobird&amp;promo=ECHOBIRD"><img src="docs/sponsors/fluxion.png" width="92" alt="Fluxion AI" /></a>
-    </td>
-    <td>
-      <a href="https://fluxionai.space/register?source=github&amp;campaign=github-echobird&amp;promo=ECHOBIRD"><strong>Fluxion AI</strong></a><br/>
-      Fluxion AI中转站帮助个人开发者与企业，通过统一API接入并管理全球主流AI模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。使用Fable 5.1时，相较Claude官方API费用，Fluxion AI最高可节省约90%
-    </td>
-  </tr>
-</table>
-
-赞助联系：[hi@echobird.ai](mailto:hi@echobird.ai)
-
 ---
 
 ## 这是什么
