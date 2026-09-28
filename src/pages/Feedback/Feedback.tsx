@@ -14,10 +14,10 @@ import { useToast } from '../../components/Toast';
 import { readLogTail } from '../../api/tauri';
 import { copyText } from '../../utils/copyText';
 
-const GITHUB_ISSUES_URL = 'https://github.com/edison7009/EchoBird/issues/new';
+const GITHUB_ISSUES_URL = 'https://github.com/congci6/EchoBird/issues/new';
 // Mainland China users frequently can't reach github.com — Gitcode mirror
 // is the primary alternative; shown only under Chinese locale.
-const GITCODE_ISSUES_URL = 'https://gitcode.com/edison7009/EchoBird/issues/create';
+const GITCODE_ISSUES_URL = 'https://gitcode.com/congci6/EchoBird/issues/create';
 // English-locale fallback when GitHub is unreachable: direct email.
 const SUPPORT_EMAIL = 'hi@echobird.ai';
 // Lines of backend log to copy. 30 is empirically enough to capture
