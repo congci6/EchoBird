@@ -98,7 +98,7 @@ export const ToolCard = React.memo(
         img.style.display = 'none';
       }
     };
-    const iconUrl = iconSrc || `./icons/tools/${id}.svg`;
+    const iconUrl = iconSrc || `./icons/tools/${id}.${id === 'dsh' ? 'png' : 'svg'}`;
 
     return (
       <div

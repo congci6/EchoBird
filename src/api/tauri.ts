@@ -314,6 +314,42 @@ export function deleteWorkBuddyAccount(
   return invoke('delete_workbuddy_account', { edition, accountId });
 }
 
+export interface DeepSeekAccount {
+  id: string;
+  name: string;
+  balances: { currency: 'CNY' | 'USD'; amount: number }[] | null;
+  active: boolean;
+}
+export interface DeepSeekLogin {
+  loginId: string;
+  verificationUri: string;
+  expiresAt: number;
+}
+export function listDeepSeekAccounts(): Promise<DeepSeekAccount[]> {
+  return invoke('list_deepseek_accounts');
+}
+export function startDeepSeekLogin(locale: string): Promise<DeepSeekLogin> {
+  return invoke('start_deepseek_login', { locale });
+}
+export function pollDeepSeekLogin(loginId: string): Promise<DeepSeekAccount | null> {
+  return invoke('poll_deepseek_login', { loginId });
+}
+export function cancelDeepSeekLogin(loginId: string): Promise<void> {
+  return invoke('cancel_deepseek_login', { loginId });
+}
+export function switchDeepSeekAccount(accountId: string, locale: string): Promise<DeepSeekAccount> {
+  return invoke('switch_deepseek_account', { accountId, locale });
+}
+export function refreshDeepSeekAccountQuota(
+  accountId: string,
+  locale: string
+): Promise<DeepSeekAccount> {
+  return invoke('refresh_deepseek_account_quota', { accountId, locale });
+}
+export function deleteDeepSeekAccount(accountId: string): Promise<void> {
+  return invoke('delete_deepseek_account', { accountId });
+}
+
 export interface GrokAccount {
   id: string;
   email: string;

@@ -5,6 +5,7 @@ mod aider;
 mod claudecode;
 mod claudedesktop;
 pub mod codex;
+pub(crate) mod dsh;
 mod generic;
 mod grok;
 mod kilo;
@@ -33,6 +34,7 @@ use claudecode::{
 use claudedesktop::{apply_claudedesktop, read_claudedesktop, restore_claudedesktop_to_official};
 pub(crate) use codex::{apply_codex, apply_codex_at};
 use codex::{read_codex, restore_codex_to_official};
+use dsh::{apply_dsh, read_dsh, restore_dsh_to_official};
 use generic::{apply_generic_json, read_generic_json};
 use grok::{apply_grok, read_grok, restore_grok_to_official};
 pub use kilo::kilo_echobird_model;
@@ -261,6 +263,25 @@ fn yaml_map() -> serde_yaml_ng::Value {
     serde_yaml_ng::Value::Mapping(serde_yaml_ng::Mapping::new())
 }
 
+/// Coerce a YAML value into a mapping, returning `&mut Mapping`. Replaces a
+/// non-mapping value with a fresh mapping — the YAML analogue of the jsonc
+/// guards used by the openscience/zcode configs.
+fn yaml_as_map_mut(value: &mut serde_yaml_ng::Value) -> &mut serde_yaml_ng::Mapping {
+    if !value.is_mapping() {
+        *value = yaml_map();
+    }
+    value.as_mapping_mut().expect("coerced to mapping")
+}
+
+/// Get-or-create a child mapping under `key` in `map`, returning `&mut Mapping`.
+fn yaml_child_map<'a>(
+    map: &'a mut serde_yaml_ng::Mapping,
+    key: &str,
+) -> &'a mut serde_yaml_ng::Mapping {
+    let child = map.entry(yaml_str(key)).or_insert_with(yaml_map);
+    yaml_as_map_mut(child)
+}
+
 /// Read a child value from a mapping by string key (None if absent/non-mapping).
 fn yaml_get<'a>(value: &'a serde_yaml_ng::Value, key: &str) -> Option<&'a serde_yaml_ng::Value> {
     value.as_mapping()?.get(yaml_str(key))
@@ -416,6 +437,7 @@ pub async fn apply_model_to_tool(tool_id: &str, model_info: ModelInfo) -> ApplyR
         // schema, dual-protocol (npm @ai-sdk/anthropic | @ai-sdk/openai-compatible),
         // config at ~/.config/openscience/openscience.json.
         "openscience" => return apply_openscience(&model_info),
+        "dsh" => return apply_dsh(&model_info),
 
         // ZCode (Z.AI desktop OpenCode fork): OpenCode schema but the provider
         // uses a `kind` discriminator and supports BOTH protocols; config at
@@ -529,6 +551,9 @@ pub async fn restore_tool_to_official(tool_id: &str) -> ApplyResult {
     if tool_id == "openscience" {
         return restore_openscience_to_official();
     }
+    if tool_id == "dsh" {
+        return restore_dsh_to_official();
+    }
 
     // Side-channel relay file (openclaw and other "custom" tools) —
     // best-effort cleanup, ignored if absent.
@@ -582,6 +607,7 @@ pub async fn get_tool_model_info(tool_id: &str) -> Option<ModelInfo> {
         "kimidesktop" => return read_kimidesktop(),
         "kilo" => return read_kilo(),
         "openscience" => return read_openscience(),
+        "dsh" => return read_dsh(),
         "zcode" => return read_zcode(),
         "codex" | "chatgptdesktop" => return read_codex(),
         "claudedesktop" => return read_claudedesktop(),

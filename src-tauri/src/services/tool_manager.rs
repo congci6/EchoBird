@@ -383,6 +383,16 @@ fn apply_user_path_overrides(paths_config: &mut PathsConfig, extra: &[String]) {
     let existing = slot.get_or_insert_with(Vec::new);
     let mut merged: Vec<String> = Vec::with_capacity(existing.len() + extra.len());
     for p in extra {
+        // Older EchoBird versions seeded CLI paths for the DSH desktop card.
+        // Keep custom desktop locations, but never launch an old npm shim.
+        if paths_config.name == "DeepSeek Harness"
+            && matches!(
+                p.rsplit(['/', '\\']).next(),
+                Some(name) if name.eq_ignore_ascii_case("dsh") || name.eq_ignore_ascii_case("dsh.cmd")
+            )
+        {
+            continue;
+        }
         if !merged.contains(p) {
             merged.push(p.clone());
         }
@@ -2337,6 +2347,44 @@ mod tests {
             path.to_lowercase().ends_with(r"\zcode.exe"),
             "expected ...\\ZCode.exe, got {path}"
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "machine-specific: requires DeepSeek Harness Desktop to be installed"]
+    fn real_registry_finds_dsh_desktop() {
+        let definition: crate::models::tool::PathsConfig =
+            serde_json::from_str(include_str!("../../../tools/dsh/paths.json")).unwrap();
+        let path = super::scan_windows_registry(&definition.install_hints.unwrap())
+            .expect("DeepSeek Harness registry entry should resolve to an executable");
+        assert!(super::is_windows_exe(&path));
+        assert!(
+            path.to_lowercase().ends_with(r"\deepseek harness.exe"),
+            "{path}"
+        );
+        assert!(std::path::Path::new(&path).is_file());
+        println!("Detected DeepSeek Harness Desktop: {path}");
+    }
+
+    #[test]
+    fn dsh_desktop_ignores_legacy_cli_overrides() {
+        let mut definition: crate::models::tool::PathsConfig =
+            serde_json::from_str(include_str!("../../../tools/dsh/paths.json")).unwrap();
+        let custom = "E:/Apps/DeepSeek Harness/DeepSeek Harness.exe".to_string();
+        let legacy = vec![
+            r"%APPDATA%\npm\dsh.cmd".to_string(),
+            r"C:\custom\DSH.CMD".to_string(),
+            "/usr/local/bin/dsh".to_string(),
+            "~/.npm-global/bin/dsh".to_string(),
+        ];
+        let mut overrides = legacy.clone();
+        overrides.push(custom.clone());
+        super::apply_user_path_overrides(&mut definition, &overrides);
+        let paths = super::get_platform_paths(&definition.paths);
+        assert_eq!(paths.first(), Some(&custom));
+        assert!(legacy.iter().all(|path| !paths.contains(path)));
+        assert!(definition.command.is_empty());
+        assert!(definition.start_command.is_none());
     }
 
     #[cfg(windows)]
