@@ -1,4 +1,3 @@
-import type { useDeepSeekAccounts } from './useDeepSeekAccounts';
 import type { useGrokAccounts } from './useGrokAccounts';
 import type { useWorkBuddyAccounts } from './useWorkBuddyAccounts';
 import type { useClaudeCodeAccounts } from './useClaudeCodeAccounts';
@@ -24,7 +23,6 @@ export interface AppManagerContextType {
   handleRestoreModel: (toolId: string) => Promise<void>;
   claudeCodeAccounts: ReturnType<typeof useClaudeCodeAccounts>;
   workBuddyAccounts: ReturnType<typeof useWorkBuddyAccounts>;
-  deepSeekAccounts: ReturnType<typeof useDeepSeekAccounts>;
   grokAccounts: ReturnType<typeof useGrokAccounts>;
   codexAccounts: CodexAccount[];
   selectedCodexAccountId: string | null;

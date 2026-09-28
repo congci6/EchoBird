@@ -12,8 +12,6 @@ pub mod codex_catalog;
 pub mod codex_runtime;
 pub mod codex_session_merge;
 pub mod datalog;
-pub mod deepseek_accounts;
-pub mod deepseek_oauth;
 pub mod free_model_directory;
 pub mod grok_accounts;
 pub mod json_repair;

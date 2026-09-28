@@ -158,7 +158,6 @@ pub const INSTALLABLE_TOOL_IDS: &[&str] = &[
     "workbuddy",
     "workbuddyai",
     "zcode",
-    "dsh",
 ];
 
 /// Build the full embedded-references block to append to the system prompt.

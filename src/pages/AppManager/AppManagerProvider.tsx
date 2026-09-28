@@ -1,4 +1,3 @@
-import { useDeepSeekAccounts } from './useDeepSeekAccounts';
 import { useGrokAccounts } from './useGrokAccounts';
 import { accountError } from '../../utils/accountError';
 import { ClaudeCodeLoginDialog } from './ClaudeCodeLoginDialog';
@@ -394,15 +393,6 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
     setApplyError
   );
 
-  const clearDeepSeekModel = useCallback(() => {
-    setToolModelConfig((prev) => ({ ...prev, dsh: null }));
-  }, []);
-  const deepSeekAccounts = useDeepSeekAccounts(
-    selectedTool === 'dsh',
-    !!toolModelConfig.dsh,
-    clearDeepSeekModel,
-    setApplyError
-  );
   const clearGrokModel = useCallback(
     () => setToolModelConfig((prev) => ({ ...prev, grok: null })),
     []
@@ -416,7 +406,6 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
 
   // Set tool model (single selection) - UI state update
   const handleSelectModel = (toolId: string, modelId: string) => {
-    if (toolId === 'dsh') deepSeekAccounts.select(null);
     if (toolId === 'grok') grokAccounts.select(null);
     if (toolId === 'claudecode') claudeCodeAccounts.setSelectedId(null);
     if (toolId === 'workbuddy' || toolId === 'workbuddyai') workBuddyAccounts.select(null);
@@ -656,11 +645,7 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
     if (!selectedTool || isLaunching) return;
     setIsLaunching(true);
     const switchingClaudeAccount = selectedTool === 'claudecode' && !!claudeCodeAccounts.selectedId;
-    if (
-      !switchingClaudeAccount &&
-      !(workBuddyEdition && workBuddyAccounts.selectedId) &&
-      !(selectedTool === 'dsh' && deepSeekAccounts.selectedId)
-    )
+    if (!switchingClaudeAccount && !(workBuddyEdition && workBuddyAccounts.selectedId))
       setTimeout(() => setIsLaunching(false), 3000); // 3 second cooldown
 
     const toolData = detectedTools.find((t) => t.id === selectedTool);
@@ -687,20 +672,6 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
         setIsLaunching(false);
         return;
       }
-    } else if (selectedTool === 'dsh' && deepSeekAccounts.selectedId) {
-      try {
-        await api.switchDeepSeekAccount(deepSeekAccounts.selectedId, locale);
-        setDetectedTools((prev) =>
-          prev.map((tool) => (tool.id === 'dsh' ? { ...tool, activeModel: '' } : tool))
-        );
-        await deepSeekAccounts.reload();
-        if (launchAfterApply) await api.startTool('dsh');
-      } catch (error) {
-        setApplyError(accountError(error, t));
-      } finally {
-        setIsLaunching(false);
-      }
-      return;
     } else if (selectedTool === 'grok' && grokAccounts.selectedId) {
       try {
         await grokAccounts.switchAccount();
@@ -851,7 +822,6 @@ export const AppManagerProvider: React.FC<AppManagerProviderProps> = ({ children
         handleRestoreModel,
         claudeCodeAccounts,
         workBuddyAccounts,
-        deepSeekAccounts,
         grokAccounts,
         codexAccounts,
         selectedCodexAccountId,
