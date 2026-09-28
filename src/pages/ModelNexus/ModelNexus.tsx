@@ -27,7 +27,8 @@ import { X, Box, ExternalLink, Plus, Lock, Unlock, RefreshCw, GripVertical } fro
 import { ModelCard, ModelCardSkeleton, getModelIcon, ModelIdCombobox } from '../../components';
 import { useToast } from '../../components/Toast';
 import { useI18n } from '../../hooks/useI18n';
-import type { TKey } from '../../i18n';
+import { API_PROTOCOL_OPTIONS } from './protocolLabels';
+import { ProtocolProbeReport, type DialectReport } from './ProtocolProbeReport';
 import * as api from '../../api/tauri';
 import type { ModelConfig } from '../../api/types';
 import { normalizeAnthropicUrl, normalizeOpenaiUrl } from '../../utils/normalizeUrl';
@@ -51,25 +52,6 @@ const isVolcengineUrl = (baseUrl: string, anthropicUrl?: string | null) => {
  *
  *  These ids are the backend's `WireProtocol::as_str` names — the backend
  *  normalizes whatever arrives here and drops anything it doesn't recognise. */
-const API_PROTOCOL_OPTIONS: { value: string; label: TKey; hint: TKey }[] = [
-  { value: '', label: 'model.apiProtocolAuto', hint: 'model.apiProtocolAutoHint' },
-  { value: 'openai-chat', label: 'model.apiProtocolChat', hint: 'model.apiProtocolChatHint' },
-  {
-    value: 'openai-responses',
-    label: 'model.apiProtocolResponses',
-    hint: 'model.apiProtocolResponsesHint',
-  },
-  {
-    value: 'anthropic-messages',
-    label: 'model.apiProtocolAnthropic',
-    hint: 'model.apiProtocolAnthropicHint',
-  },
-  {
-    value: 'gemini-generate-content',
-    label: 'model.apiProtocolGemini',
-    hint: 'model.apiProtocolGeminiHint',
-  },
-];
 
 const visibleModelNexusModels = (models: ModelConfig[]) =>
   models.filter(
@@ -1003,31 +985,7 @@ type DirectoryEntry = {
   region: 'cn' | 'global';
 };
 
-/** What one probe of the four dialects found. Mirrors `protocol_probe::DialectReport`. */
-type DialectReport = {
-  protocol: string;
-  available: boolean;
-  /** `available` | `unsupported` | `auth` | `unknown` — not a boolean, because a
-   *  bad key and a missing endpoint look identical from the outside and send the
-   *  user to fix completely different things. */
-  outcome: 'available' | 'unsupported' | 'auth' | 'unknown';
-  detail?: string;
-  latencyMs: number;
-};
-
 type ProtocolProbe = { reports: DialectReport[]; error?: string };
-
-/** Reuse the dropdown's own labels so the report reads the same as the picker. */
-const PROTOCOL_LABEL_KEYS: Record<string, TKey> = Object.fromEntries(
-  API_PROTOCOL_OPTIONS.filter((o) => o.value).map((o) => [o.value, o.label])
-);
-
-const OUTCOME_KEYS: Record<DialectReport['outcome'], TKey> = {
-  available: 'model.probeOutcome.available',
-  unsupported: 'model.probeOutcome.unsupported',
-  auth: 'model.probeOutcome.auth',
-  unknown: 'model.probeOutcome.unknown',
-};
 
 const BUNDLED_PROVIDERS: DirectoryEntry[] = modelDirectory.providers as DirectoryEntry[];
 const BUNDLED_RELAYS: DirectoryEntry[] = modelDirectory.relays as DirectoryEntry[];
@@ -1494,35 +1452,7 @@ export function AddModelModal() {
                   {probing ? t('model.probeProtocolsRunning') : t('model.probeProtocols')}
                 </button>
                 {visibleProbe && (
-                  <ul className="mt-1.5 space-y-0.5">
-                    {visibleProbe.reports.map((entry) => (
-                      <li key={entry.protocol} className="flex items-start gap-1.5 text-[10px]">
-                        <span
-                          className={
-                            entry.available
-                              ? 'text-emerald-500'
-                              : entry.outcome === 'auth'
-                                ? 'text-amber-500'
-                                : 'text-red-500'
-                          }
-                        >
-                          {entry.available ? '●' : '○'}
-                        </span>
-                        <span className="text-cyber-text-secondary">
-                          {t(PROTOCOL_LABEL_KEYS[entry.protocol] ?? 'model.apiProtocolChat')}
-                        </span>
-                        <span className="text-cyber-text-tertiary">
-                          {t(OUTCOME_KEYS[entry.outcome])}
-                          {entry.latencyMs > 0 && ` · ${entry.latencyMs}ms`}
-                        </span>
-                        {entry.detail && (
-                          <span className="truncate opacity-70" title={entry.detail}>
-                            {entry.detail}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                  <ProtocolProbeReport reports={visibleProbe.reports} error={visibleProbe.error} />
                 )}
               </div>
               {/* The manual switch above needs the user to already know their
